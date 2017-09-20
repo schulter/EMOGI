@@ -8,6 +8,10 @@ import time
 from datetime import datetime
 import matplotlib.pyplot as plt
 
+# write own load function which loads all data from disk
+# (adjacency matrix, gene expression values, labels, train test split)
+# should first create one hdf5 directory containing all of them
++#def load_data(adj_file, feat_file, )
 
 class MYGCN:
     def __init__(self, learning_rate=.01, dropout_prob=.5, num_feature_maps=16, num_classes=7):
