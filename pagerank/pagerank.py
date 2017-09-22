@@ -22,7 +22,7 @@ if __name__ == "__main__":
         mini = min(pagerank_vals, key=pagerank_vals.get)
         print "Minimum Pagerank: Index: {}\tPagerank: {}".format(mini, pagerank_vals[mini])
 
-        # sort pagerank values
+        # sort pagerank results (dict with gene idx and pagerank val)
         pagerank_sorted = sorted(pagerank_vals.items(), key=operator.itemgetter(1))[::-1]
 
         # get the gene names and print to file
