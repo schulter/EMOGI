@@ -7,7 +7,7 @@ import pandas
 
 if __name__ == "__main__":
     # load network and gene expression data
-    fname = '../preprocessing/ppi_networks.h5'
+    fname = '../data/preprocessing/ppi_networks.h5'
     with h5py.File(fname, 'r') as f:
         gene_expression_data = f['gene_expression'][:]
         ppi_network = f['consensusPathDB_ppi'][:]
@@ -17,16 +17,15 @@ if __name__ == "__main__":
         G = nx.from_numpy_matrix(ppi_network)
         pagerank_vals = nx.pagerank(G)
         maxi = max(pagerank_vals, key=pagerank_vals.get)
-        print maxi, pagerank_vals[maxi]
-        print "Maximum Pagerank: Index: {}\tPagerank: {}".format(maxi, pagerank_vals[maxi])
+        print ("Maximum Pagerank: Index: {}\tPagerank: {}".format(maxi, pagerank_vals[maxi]))
         mini = min(pagerank_vals, key=pagerank_vals.get)
-        print "Minimum Pagerank: Index: {}\tPagerank: {}".format(mini, pagerank_vals[mini])
+        print ("Minimum Pagerank: Index: {}\tPagerank: {}".format(mini, pagerank_vals[mini]))
 
         # sort pagerank results (dict with gene idx and pagerank val)
         pagerank_sorted = sorted(pagerank_vals.items(), key=operator.itemgetter(1))[::-1]
 
         # get the gene names and print to file
-        result_file = 'pagerank_scores.txt'
+        result_file = '../data/pagerank/pagerank_scores.txt'
         with open(result_file, 'w') as res:
             count = 1
             res.write('Gene_ID\tGene_Name\tRank\tPageRank_Score\n')
