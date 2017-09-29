@@ -30,6 +30,6 @@ if __name__ == "__main__":
             count = 1
             res.write('Gene_ID\tGene_Name\tRank\tPageRank_Score\n')
             for gene_idx, pr in pagerank_sorted:
-                res.write("{}\t{}\t{}\t{}\n".format(gene_names[gene_idx][1], gene_names[gene_idx][0], count, pr))
+                res.write("{}\t{}\t{}\t{}\n".format(gene_names[gene_idx][0], gene_names[gene_idx][1], count, pr))
                 count += 1
         print ("Done with PageRank Algorithm! Exit!")
