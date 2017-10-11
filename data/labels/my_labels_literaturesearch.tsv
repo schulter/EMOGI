@@ -1,0 +1,12 @@
+Gene-name	Ensembl	Uniprot	Source	Which role does the gene play?
+Mip		Q70YI1	http://www.pnas.org/content/89/11/5188.short	
+RANBP3l	ENSG00000164188		https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4259488/	
+EGR1	ENSG00000120738		https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4259488/	
+GRB2	ENSG00000177885		https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4259488/	
+Naip5	ENSG00000249437		https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3538141/	Part of NLR pathway, reacts to Legionella flagellin
+NLRC4	ENSG00000091106	Q9NPP4	https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3538141/	Part of NLR pathway, reacts to Legionella flagellin
+ARF1	ENSG00000143761	P84077	https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3538141/	Dot/Icm effectors manipulate Arf1 directly, it regulates vesicle trafficking between ER and Golgi Apparatus
+Rab1A	ENSG00000138069	P62820	https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3538141/	Dot/Icm effectors manipulate Arf1 directly, it regulates vesicle trafficking between ER and Golgi Apparatus
+ATP6V1A	ENSG00000114573	P38606	https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3538141/	Is bound by effector and prevents macrophage from digesting internalized bacteria
+NFKB1	ENSG00000109320	P19838	https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3538141/	Immune response, it reacts to Legionella presence - whole pathway
+IL23a	ENSG00000110944	Q9NPF7	https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3538141/	Needed by Legionella to inhibit host protein synthesis
