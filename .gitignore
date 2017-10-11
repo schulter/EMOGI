@@ -67,7 +67,7 @@ instance/
 docs/_build/
 
 # PyBuilder
-target/
+target/s-
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -102,3 +102,11 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+# images
+.png
+.svg
+
+# data files
+.xls
+.xlsx
