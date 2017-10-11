@@ -110,3 +110,9 @@ venv.bak/
 # data files
 *.xls
 *.xlsx
+
+# graphs/networks
+*.xml
+*.gml
+*.html
+*.cys
