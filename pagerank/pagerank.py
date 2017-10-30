@@ -49,6 +49,7 @@ def get_personalization_vec(diff_expr, gene_names):
     personalization = {row['Node-number']:row.rw_prob for ens, row in names_with_de.iterrows()}
     return personalization
 
+
 def pagerank(network_path, diff_expr=None, alpha=0.3):
     """Execute PageRank/NetRank algorithm.
 
@@ -69,7 +70,6 @@ def pagerank(network_path, diff_expr=None, alpha=0.3):
     A list of tuples with the sorted PageRank/NetRank scores and gene names.
     """
     with h5py.File(network_path, 'r') as f:
-        gene_expression_data = f['gene_expression'][:]
         ppi_network = f['consensusPathDB_ppi'][:]
         gene_names = f['gene_names'][:]
 
