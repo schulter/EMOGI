@@ -30,6 +30,7 @@ def netrank_gridsearch(network_path, diff_expr, out_path, alpha_prec=10):
                             for alpha = [.1, .2, .3, .4, .5, .6, .7, .8, .9, 1].
     """
     alpha_range = np.linspace(0, 1, alpha_prec)
+    print ("Running grid search for alpha={}".format(alpha_range))
     for alpha in alpha_range:
         scores, gene_names = pagerank.pagerank(network_path, diff_expr, alpha)
         out = os.path.join(out_path, 'netrank_alpha_{}.txt'.format(alpha))
@@ -66,8 +67,11 @@ def parseArgs():
 
 if __name__ == "__main__":
     ppi_path, de_up_path, de_down_path, out_path = parseArgs()
+    
+    if not os.path.isdir(out_path):
+        os.mkdir(out_path)
 
     # load DE (usually GFP+ vs. Control after 16 hours for up and down-regulated genes)
     # Unfortunately, we only have pvalue < .05, fill the rest with zeros.
     de = pagerank.load_diff_expr(de_up_path, de_down_path)
-    netrank_gridsearch(ppi_path, de)
+    netrank_gridsearch(ppi_path, de, out_path)
