@@ -43,7 +43,7 @@ def get_personalization_vec(diff_expr, gene_names):
 
     # calculate random walk probabilities from log2FoldChange
     names_with_de.ix[names_with_de.log2FoldChange.isnull(), 'log2FoldChange'] = 0
-    names_with_de['rw_prob'] = softmax(abs(names_with_de.log2FoldChange) * names_with_de.pvalue)
+    names_with_de['rw_prob'] = softmax(abs(names_with_de.log2FoldChange))
 
     # construct dict which can be fed to the networkx pagerank algorithm
     personalization = {row['Node-number']:row.rw_prob for ens, row in names_with_de.iterrows()}
