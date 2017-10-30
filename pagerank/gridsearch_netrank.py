@@ -8,7 +8,7 @@ import numpy as np
 import pagerank
 import argparse, os
 
-def netrank_gridsearch(network_path, diff_expr, out_path, alpha_prec=10):
+def netrank_gridsearch(network_path, diff_expr, out_path, alpha_prec=11):
     """Perform grid search over alpha parameter.
     
     This function will compute the netranks for a given network and differential

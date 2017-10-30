@@ -37,13 +37,13 @@ def get_personalization_vec(diff_expr, gene_names):
                                 )
 
     # join gene names and differential expression
-    names_with_de = gene_names_df.join(de, lsuffix='_left')
+    names_with_de = gene_names_df.join(diff_expr, lsuffix='_left')
     genes_zero_de = names_with_de.log2FoldChange.isnull().sum()
     print ("{} genes in network don't have any differential expression values!".format(genes_zero_de))
 
     # calculate random walk probabilities from log2FoldChange
     names_with_de.ix[names_with_de.log2FoldChange.isnull(), 'log2FoldChange'] = 0
-    names_with_de['rw_prob'] = softmax(abs(names_with_de.log2FoldChange))
+    names_with_de['rw_prob'] = softmax(abs(names_with_de.log2FoldChange) * names_with_de.pvalue)
 
     # construct dict which can be fed to the networkx pagerank algorithm
     personalization = {row['Node-number']:row.rw_prob for ens, row in names_with_de.iterrows()}
