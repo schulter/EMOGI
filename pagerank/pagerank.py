@@ -28,6 +28,7 @@ def load_diff_expr(file_name_up, file_name_down):
 
 def get_personalization_vec(diff_expr, gene_names):
     """Computes the personalization vector from differential expression data."""
+
     # add column with node numbers (as in the networkx graph) to the gene names
     indices = np.arange(0, gene_names.shape[0]).reshape(gene_names.shape[0], 1)
     gene_names_with_index = np.hstack([gene_names, indices])
@@ -39,11 +40,11 @@ def get_personalization_vec(diff_expr, gene_names):
     # join gene names and differential expression
     names_with_de = gene_names_df.join(diff_expr, lsuffix='_left')
     genes_zero_de = names_with_de.log2FoldChange.isnull().sum()
-    print ("{} genes in network don't have any differential expression values!".format(genes_zero_de))
+    print ("{} genes in network don't have any differential expression values (setting to zero)!".format(genes_zero_de))
 
     # calculate random walk probabilities from log2FoldChange
     names_with_de.ix[names_with_de.log2FoldChange.isnull(), 'log2FoldChange'] = 0
-    names_with_de['rw_prob'] = softmax(abs(names_with_de.log2FoldChange) * names_with_de.pvalue)
+    names_with_de['rw_prob'] = softmax(abs(names_with_de.log2FoldChange))
 
     # construct dict which can be fed to the networkx pagerank algorithm
     personalization = {row['Node-number']:row.rw_prob for ens, row in names_with_de.iterrows()}
@@ -105,15 +106,9 @@ def parseArgs():
     parser.add_argument('--ppi', help='path to ppi network hdf5 container',
                         dest='ppi'
                         )
-    parser.add_argument('--de_up',
-                        help='differential expression up-regulated (html)',
-                        dest='de_up',
-                        default=None,
-                        type=str
-                        )
-    parser.add_argument('--de_down',
-                        help='differential expression down-regulated (html)',
-                        dest='de_down',
+    parser.add_argument('--de',
+                        help='differential expression file (csv)',
+                        dest='de',
                         default=None,
                         type=str
                         )
@@ -128,15 +123,15 @@ def parseArgs():
                         type=str
                         )
     args = parser.parse_args()
-    return args.ppi, args.de_up, args.de_down, args.alpha, args.out_path
+    return args.ppi, args.de, args.alpha, args.out_path
 
 if __name__ == "__main__":
-    ppi_path, de_up_path, de_down_path, alpha, out_path = parseArgs()
+    ppi_path, de_path, alpha, out_path = parseArgs()
 
     # load DE (usually GFP+ vs. Control after 16 hours for up and down-regulated genes)
     # Unfortunately, we only have pvalue < .05, fill the rest with zeros.
-    if not (de_up_path is None or de_down_path is None):
-        de = load_diff_expr(de_up_path, de_down_path)
+    if not de_path is None:
+        de = pd.DataFrame.from_csv(de_path).dropna()
     else:
         de = None
 

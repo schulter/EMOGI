@@ -5,15 +5,16 @@ Created on Mon Oct 30 10:49:32 2017
 @author: roman
 """
 import numpy as np
+import pandas as pd
 import pagerank
 import argparse, os
 
 def netrank_gridsearch(network_path, diff_expr, out_path, alpha_prec=11):
     """Perform grid search over alpha parameter.
-    
+
     This function will compute the netranks for a given network and differential
     expression data for a range of alpha parameters.
-    
+
     Parameters:
     ----------
     network_path:           Path to the network in hdf5 container (with gene names).
@@ -44,15 +45,9 @@ def parseArgs():
     parser.add_argument('--ppi', help='path to ppi network hdf5 container',
                         dest='ppi'
                         )
-    parser.add_argument('--de_up',
-                        help='differential expression up-regulated (html)',
-                        dest='de_up',
-                        default=None,
-                        type=str
-                        )
-    parser.add_argument('--de_down',
-                        help='differential expression down-regulated (html)',
-                        dest='de_down',
+    parser.add_argument('--de',
+                        help='differential expression from DESeq2 (csv)',
+                        dest='de',
                         default=None,
                         type=str
                         )
@@ -62,16 +57,16 @@ def parseArgs():
                         type=str
                         )
     args = parser.parse_args()
-    return args.ppi, args.de_up, args.de_down, args.out_path
+    return args.ppi, args.de, args.out_path
 
 
 if __name__ == "__main__":
-    ppi_path, de_up_path, de_down_path, out_path = parseArgs()
-    
+    ppi_path, de_path, out_path = parseArgs()
+
     if not os.path.isdir(out_path):
         os.mkdir(out_path)
 
     # load DE (usually GFP+ vs. Control after 16 hours for up and down-regulated genes)
     # Unfortunately, we only have pvalue < .05, fill the rest with zeros.
-    de = pagerank.load_diff_expr(de_up_path, de_down_path)
+    de = pd.DataFrame.from_csv(de_path)
     netrank_gridsearch(ppi_path, de, out_path)
