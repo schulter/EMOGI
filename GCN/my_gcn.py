@@ -2,16 +2,24 @@
 import tensorflow as tf
 from utils import *
 
-import os, sys
+import os, sys, h5py
 import pickle
 import time
 from datetime import datetime
 import matplotlib.pyplot as plt
 
-# write own load function which loads all data from disk
-# (adjacency matrix, gene expression values, labels, train test split)
-# should first create one hdf5 directory containing all of them
-+#def load_data(adj_file, feat_file, )
+
+def load_hdf_data(path):
+    with h5py.File(path, 'r') as f:
+        network = f['network'][:]
+        features = f['features'][:]
+        y_train = f['y_train'][:]
+        y_test = f['y_test'][:]
+        y_val = f['y_val'][:]
+        train_mask = f['mask_train'][:]
+        test_mask = f['mask_test'][:]
+        val_mask = f['mask_val'][:]
+    return network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask
 
 class MYGCN:
     def __init__(self, learning_rate=.01, dropout_prob=.5, num_feature_maps=16, num_classes=7):
@@ -74,7 +82,7 @@ class MYGCN:
         train_step = tf.train.AdamOptimizer(self.learning_rate).minimize(loss)
         return loss, train_step, output, acc
 
-    def train_model(self, adj, features, train_y, val_y, train_mask, val_mask, num_nodes, num_feat, num_epochs=2):
+    def train_model(self, adj, features, train_y, test_y, val_y, train_mask, test_mask, val_mask, num_nodes, num_feat, num_epochs=2):
         keep_prob = tf.placeholder(tf.float32, name="dropout_prob")  # dropout (keep probability)
         G = tf.placeholder(tf.float32, shape=adj.shape)
         F = tf.placeholder(tf.float32, shape=features.shape)
@@ -94,7 +102,7 @@ class MYGCN:
             with tf.device('/gpu:0'):
                 feed_d = {G:adj, F:features, L:train_y, M:train_mask, keep_prob: self.dropout_keep_prob}
                 train_loss = sess.run(loss_op, feed_dict=feed_d)
-                train_acc = sess.run(loss_op, feed_dict=feed_d)
+                train_acc = sess.run(acc_op, feed_dict=feed_d)
                 print ("Starting training with train acc: {}\tloss: {}".format(train_acc, train_loss))
                 for epoch in range(num_epochs):
                     # optimize
@@ -114,9 +122,28 @@ class MYGCN:
                     accuracies_test.append(val_acc)
                     cross_entropy_test.append(val_loss)
                     print ("[Epoch {}]\tTraining Acc: {:.2f}\tVal Acc: {:.2f}\tTraining Loss: {:.2f}\tVal Loss: {:.2f}".format(epoch, train_acc, val_acc, train_loss, val_loss))
-
+                feed_d = {G:adj, F:features, L:test_y, M: test_mask}
+                test_acc = sess.run(acc_op, feed_d)
+                print ("Final Accuracy on Test Set: {}".format(test_acc))
             self.finish_after_training(saver, sess, accuracies_test, accuracies_train, cross_entropy_test)
 
+    def evaluate_model(self, adj, features, test_y, test_mask):
+        keep_prob = tf.placeholder(tf.float32, name="dropout_prob")  # dropout (keep probability)
+        G = tf.placeholder(tf.float32, shape=adj.shape)
+        F = tf.placeholder(tf.float32, shape=features.shape)
+        L = tf.placeholder(tf.float32, shape=test_y.shape)
+        M = tf.placeholder(tf.float32, shape=test_mask.shape)
+        loss_op, train_op, prediction_op, acc_op = self.construct_computation_graph(G, F, L, M, num_nodes, num_feat)
+        with tf.Session() as sess:
+            sess.run(tf.global_variables_initializer())
+            with tf.device('/gpu:0'):
+                feed_d = {G:adj, F:features, L:test_y, M:test_mask, keep_prob: 1.}
+                prediction = sess.run(prediction_op, feed_dict=feed_d)
+                test_acc = sess.run(acc_op, feed_dict=feed_d)
+                test_loss = sess.run(loss_op, feed_dict=feed_d)
+
+        print ("Test Accuracy: {}\tTest Loss: {}".format(test_acc, test_loss))
+        return prediction
 
     def get_hidden_activation(self, adj, x, path):
         G = tf.placeholder(tf.float32, shape=adj.shape)
@@ -187,8 +214,9 @@ class MYGCN:
 
 
 if __name__ == "__main__":
-    gcn = MYGCN()
-    adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = load_data('cora')
+    gcn = MYGCN(num_classes=2)
+    #adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = load_data('cora')
+    adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = load_hdf_data('../data/tfprediction/gcn_input.h5')
     num_nodes = adj.shape[0]
     num_feat = features.shape[1]
 
@@ -196,6 +224,7 @@ if __name__ == "__main__":
     #features = preprocess_features(features)
     adj = gcn.preprocess_adj(adj)
     adj = adj.todense()
-    features = features.todense()
+    #features = features.todense()
     adj = np.asarray(adj)
-    gcn.train_model(adj, features, y_train, y_val, train_mask, val_mask, num_nodes, num_feat, num_epochs=10)
+    gcn.train_model(adj, features, y_train, y_test, y_val, train_mask, test_mask, val_mask, num_nodes, num_feat, num_epochs=10)
+    #predictions = gcn.evaluate_model(adj, features, y_test, test_mask)
