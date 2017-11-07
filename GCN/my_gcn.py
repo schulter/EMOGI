@@ -2,9 +2,9 @@
 import tensorflow as tf
 from utils import *
 
-import os, sys, h5py
+import os, h5py
+import numpy as np
 import pickle
-import time
 from datetime import datetime
 import matplotlib.pyplot as plt
 
@@ -15,10 +15,16 @@ def load_hdf_data(path):
         features = f['features'][:]
         y_train = f['y_train'][:]
         y_test = f['y_test'][:]
-        y_val = f['y_val'][:]
+        if 'y_val' in f:
+            y_val = f['y_val'][:]
+        else:
+            y_val = None
         train_mask = f['mask_train'][:]
         test_mask = f['mask_test'][:]
-        val_mask = f['mask_val'][:]
+        if 'mask_val' in f:
+            val_mask = f['mask_val'][:]
+        else:
+            val_mask = None
     return network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask
 
 class MYGCN:
@@ -109,7 +115,10 @@ class MYGCN:
                     feed_d = {G:adj, F:features, L:train_y, M:train_mask, keep_prob: self.dropout_keep_prob}
                     sess.run(train_op, feed_dict=feed_d)
                     # validation accuracy
-                    feed_val = {G:adj, F:features, L:val_y, M:val_mask, keep_prob: 1.}
+                    if val_y is None:
+                        feed_val = {G:adj, F:features, L:test_y, M:test_mask, keep_prob: 1.}
+                    else:
+                        feed_val = {G:adj, F:features, L:val_y, M:val_mask, keep_prob: 1.}
                     val_acc = sess.run(acc_op, feed_dict=feed_val)
                     # training accuracy
                     feed_train_acc = {G:adj, F:features, L:train_y, M:train_mask, keep_prob: 1.}
@@ -216,7 +225,7 @@ class MYGCN:
 if __name__ == "__main__":
     gcn = MYGCN(num_classes=2)
     #adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = load_data('cora')
-    adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = load_hdf_data('../data/tfprediction/gcn_input.h5')
+    adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = load_hdf_data('../data/preprocessing/legionella_gcn_input.h5')
     num_nodes = adj.shape[0]
     num_feat = features.shape[1]
 
@@ -226,5 +235,5 @@ if __name__ == "__main__":
     adj = adj.todense()
     #features = features.todense()
     adj = np.asarray(adj)
-    gcn.train_model(adj, features, y_train, y_test, y_val, train_mask, test_mask, val_mask, num_nodes, num_feat, num_epochs=10)
+    gcn.train_model(adj, features, y_train, y_test, y_val, train_mask, test_mask, val_mask, num_nodes, num_feat, num_epochs=1)
     #predictions = gcn.evaluate_model(adj, features, y_test, test_mask)

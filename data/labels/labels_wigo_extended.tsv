@@ -10,3 +10,17 @@ Rab1A	ENSG00000138069	P62820	https://www.ncbi.nlm.nih.gov/pmc/articles/PMC353814
 ATP6V1A	ENSG00000114573	P38606	https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3538141/	Is bound by effector and prevents macrophage from digesting internalized bacteria
 NFKB1	ENSG00000109320	P19838	https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3538141/	Immune response, it reacts to Legionella presence - whole pathway
 IL23a	ENSG00000110944	Q9NPF7	https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3538141/	Needed by Legionella to inhibit host protein synthesis
+IL1B	ENSG00000125538	P01584	Wigo extended list	
+ICAM1	ENSG00000090339	P05362	Wigo extended list	
+CCL4	ENSG00000275302	P13236	Wigo extended list	
+SOD2	ENSG00000112096	P04179	Wigo extended list	
+CXCL2	ENSG00000081041	P19875	Wigo extended list	
+TNFAIP3	ENSG00000118503	P21580	Wigo extended list	
+CXCL8	ENSG00000081041	P19875	Wigo extended list	
+SOCS3	ENSG00000184557	O14543	Wigo extended list	
+TNFAIP2	ENSG00000185215	Q03169	Wigo extended list	
+IL6	ENSG00000136244	P05231	Wigo extended list	
+CCL5	ENSG00000271503	P13501	Wigo extended list	
+TRAF6	ENSG00000175104	Q9Y4K3	Wigo extended list	
+BCL10	ENSG00000142867	O95999	Wigo extended list	
+NLRP4	ENSG00000160505	Q96MN2	Wigo extended list	
