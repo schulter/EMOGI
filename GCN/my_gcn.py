@@ -83,10 +83,11 @@ class MYGCN:
 
     def construct_computation_graph(self, adj, x, labels, label_mask, num_nodes, num_feat):
         _, output = self.build_model(adj, x, num_nodes, num_feat)
+        prediction = tf.nn.softmax(output)
         loss = self.masked_softmax_cross_entropy(output, labels, label_mask)
         acc = self.masked_accuracy(output, labels, label_mask)
         train_step = tf.train.AdamOptimizer(self.learning_rate).minimize(loss)
-        return loss, train_step, output, acc
+        return loss, train_step, prediction, acc
 
     def train_model(self, adj, features, train_y, test_y, val_y, train_mask, test_mask, val_mask, num_nodes, num_feat, num_epochs=2):
         keep_prob = tf.placeholder(tf.float32, name="dropout_prob")  # dropout (keep probability)
@@ -133,8 +134,9 @@ class MYGCN:
                     print ("[Epoch {}]\tTraining Acc: {:.2f}\tVal Acc: {:.2f}\tTraining Loss: {:.2f}\tVal Loss: {:.2f}".format(epoch, train_acc, val_acc, train_loss, val_loss))
                 feed_d = {G:adj, F:features, L:test_y, M: test_mask}
                 test_acc = sess.run(acc_op, feed_d)
+                predictions = sess.run(prediction_op, feed_d)
                 print ("Final Accuracy on Test Set: {}".format(test_acc))
-            self.finish_after_training(saver, sess, accuracies_test, accuracies_train, cross_entropy_test)
+            self.finish_after_training(saver, sess, accuracies_test, accuracies_train, cross_entropy_test, predictions)
 
     def evaluate_model(self, adj, features, test_y, test_mask):
         keep_prob = tf.placeholder(tf.float32, name="dropout_prob")  # dropout (keep probability)
@@ -200,7 +202,7 @@ class MYGCN:
         accuracy_all *= mask
         return tf.reduce_mean(accuracy_all)
 
-    def finish_after_training(self, saver, sess, accuracies_test, accuracies_train, cross_entropy_test):
+    def finish_after_training(self, saver, sess, accuracies_test, accuracies_train, cross_entropy_test, predictions):
         if not os.path.isdir('training'):
             os.mkdir('training')
             print ("Created Training Subdir")
@@ -214,6 +216,10 @@ class MYGCN:
         with open(save_path + 'accuracies.pkl', 'wb') as f:
             pickle.dump((accuracies_test, accuracies_train, cross_entropy_test), f, pickle.HIGHEST_PROTOCOL)
 
+        # save the predictions
+        np.savetxt(save_path + 'predictions.tsv', predictions, delimiter='\t', header='Label_Prob\tNot_Label_Prob')
+        
+        # plotting
         print ("Plotting...")
         fig = plt.figure(figsize=(14,8))
         plt.plot(accuracies_test, color='green', label='Accuracy on the test set')
@@ -223,7 +229,7 @@ class MYGCN:
 
 
 if __name__ == "__main__":
-    gcn = MYGCN(num_classes=2)
+    gcn = MYGCN(num_classes=2, dropout_prob=0.5, num_feature_maps=5)
     #adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = load_data('cora')
     adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = load_hdf_data('../data/preprocessing/legionella_gcn_input.h5')
     num_nodes = adj.shape[0]
@@ -235,5 +241,4 @@ if __name__ == "__main__":
     adj = adj.todense()
     #features = features.todense()
     adj = np.asarray(adj)
-    gcn.train_model(adj, features, y_train, y_test, y_val, train_mask, test_mask, val_mask, num_nodes, num_feat, num_epochs=1)
-    #predictions = gcn.evaluate_model(adj, features, y_test, test_mask)
+    gcn.train_model(adj, features, y_train, y_test, y_val, train_mask, test_mask, val_mask, num_nodes, num_feat, num_epochs=5)
