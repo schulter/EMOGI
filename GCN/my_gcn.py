@@ -13,6 +13,7 @@ def load_hdf_data(path):
     with h5py.File(path, 'r') as f:
         network = f['network'][:]
         features = f['features'][:]
+        node_names = f['gene_names'][:]
         y_train = f['y_train'][:]
         y_test = f['y_test'][:]
         if 'y_val' in f:
@@ -25,7 +26,7 @@ def load_hdf_data(path):
             val_mask = f['mask_val'][:]
         else:
             val_mask = None
-    return network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask
+    return network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names
 
 class MYGCN:
     def __init__(self, learning_rate=.01, dropout_prob=.5, num_feature_maps=16, num_classes=7):
@@ -89,7 +90,7 @@ class MYGCN:
         train_step = tf.train.AdamOptimizer(self.learning_rate).minimize(loss)
         return loss, train_step, prediction, acc
 
-    def train_model(self, adj, features, train_y, test_y, val_y, train_mask, test_mask, val_mask, num_nodes, num_feat, num_epochs=2):
+    def train_model(self, adj, features, train_y, test_y, val_y, train_mask, test_mask, val_mask, num_nodes, num_feat, node_names, num_epochs=2):
         keep_prob = tf.placeholder(tf.float32, name="dropout_prob")  # dropout (keep probability)
         G = tf.placeholder(tf.float32, shape=adj.shape)
         F = tf.placeholder(tf.float32, shape=features.shape)
@@ -106,66 +107,76 @@ class MYGCN:
         cross_entropy_test = []
         with tf.Session() as sess:
             sess.run(tf.global_variables_initializer())
-            with tf.device('/gpu:0'):
-                feed_d = {G:adj, F:features, L:train_y, M:train_mask, keep_prob: self.dropout_keep_prob}
-                train_loss = sess.run(loss_op, feed_dict=feed_d)
-                train_acc = sess.run(acc_op, feed_dict=feed_d)
-                print ("Starting training with train acc: {}\tloss: {}".format(train_acc, train_loss))
-                for epoch in range(num_epochs):
-                    # optimize
-                    feed_d = {G:adj, F:features, L:train_y, M:train_mask, keep_prob: self.dropout_keep_prob}
-                    sess.run(train_op, feed_dict=feed_d)
-                    # validation accuracy
-                    if val_y is None:
-                        feed_val = {G:adj, F:features, L:test_y, M:test_mask, keep_prob: 1.}
-                    else:
-                        feed_val = {G:adj, F:features, L:val_y, M:val_mask, keep_prob: 1.}
-                    val_acc = sess.run(acc_op, feed_dict=feed_val)
-                    # training accuracy
-                    feed_train_acc = {G:adj, F:features, L:train_y, M:train_mask, keep_prob: 1.}
-                    train_acc = sess.run(acc_op, feed_dict=feed_train_acc)
-                    # validation loss
-                    val_loss = sess.run(loss_op, feed_dict=feed_val)
-                    # training loss
-                    train_loss = sess.run(loss_op, feed_dict=feed_train_acc)
-                    accuracies_train.append(train_acc)
-                    accuracies_test.append(val_acc)
-                    cross_entropy_test.append(val_loss)
-                    print ("[Epoch {}]\tTraining Acc: {:.2f}\tVal Acc: {:.2f}\tTraining Loss: {:.2f}\tVal Loss: {:.2f}".format(epoch, train_acc, val_acc, train_loss, val_loss))
-                feed_d = {G:adj, F:features, L:test_y, M: test_mask}
-                test_acc = sess.run(acc_op, feed_d)
-                predictions = sess.run(prediction_op, feed_d)
-                print ("Final Accuracy on Test Set: {}".format(test_acc))
-            self.finish_after_training(saver, sess, accuracies_test, accuracies_train, cross_entropy_test, predictions)
 
-    def evaluate_model(self, adj, features, test_y, test_mask):
+            feed_d = {G:adj, F:features, L:train_y, M:train_mask, keep_prob: self.dropout_keep_prob}
+            train_loss = sess.run(loss_op, feed_dict=feed_d)
+            train_acc = sess.run(acc_op, feed_dict=feed_d)
+            print ("Starting training with train acc: {}\tloss: {}".format(train_acc, train_loss))
+            for epoch in range(num_epochs):
+                # optimize
+                feed_d = {G:adj, F:features, L:train_y, M:train_mask, keep_prob: self.dropout_keep_prob}
+                sess.run(train_op, feed_dict=feed_d)
+                # validation accuracy
+                if val_y is None:
+                    feed_val = {G:adj, F:features, L:test_y, M:test_mask, keep_prob: 1.}
+                else:
+                    feed_val = {G:adj, F:features, L:val_y, M:val_mask, keep_prob: 1.}
+                val_acc = sess.run(acc_op, feed_dict=feed_val)
+                # training accuracy
+                feed_train_acc = {G:adj, F:features, L:train_y, M:train_mask, keep_prob: 1.}
+                train_acc = sess.run(acc_op, feed_dict=feed_train_acc)
+                # validation loss
+                val_loss = sess.run(loss_op, feed_dict=feed_val)
+                # training loss
+                train_loss = sess.run(loss_op, feed_dict=feed_train_acc)
+                accuracies_train.append(train_acc)
+                accuracies_test.append(val_acc)
+                cross_entropy_test.append(val_loss)
+                print ("[Epoch {}]\tTraining Acc: {:.2f}\tVal Acc: {:.2f}\tTraining Loss: {:.2f}\tVal Loss: {:.2f}".format(epoch, train_acc, val_acc, train_loss, val_loss))
+            feed_d = {G:adj, F:features, L:test_y, M: test_mask}
+            test_acc = sess.run(acc_op, feed_d)
+            predictions = sess.run(prediction_op, feed_d)
+            print ("Final Accuracy on Test Set: {}".format(test_acc))
+            self.finish_after_training(saver, sess, accuracies_test, accuracies_train, cross_entropy_test, predictions, node_names)
+
+
+    def load_and_evaluate(self, path, adj, features, test_y, test_mask):
         keep_prob = tf.placeholder(tf.float32, name="dropout_prob")  # dropout (keep probability)
         G = tf.placeholder(tf.float32, shape=adj.shape)
         F = tf.placeholder(tf.float32, shape=features.shape)
         L = tf.placeholder(tf.float32, shape=test_y.shape)
         M = tf.placeholder(tf.float32, shape=test_mask.shape)
-        loss_op, train_op, prediction_op, acc_op = self.construct_computation_graph(G, F, L, M, num_nodes, num_feat)
+        loss_op, train_op, prediction_op, acc_op = self.construct_computation_graph(G, F, L, M, adj.shape[0], features.shape[1])
+        saver = tf.train.Saver()
         with tf.Session() as sess:
-            sess.run(tf.global_variables_initializer())
-            with tf.device('/gpu:0'):
-                feed_d = {G:adj, F:features, L:test_y, M:test_mask, keep_prob: 1.}
-                prediction = sess.run(prediction_op, feed_dict=feed_d)
-                test_acc = sess.run(acc_op, feed_dict=feed_d)
-                test_loss = sess.run(loss_op, feed_dict=feed_d)
+            saver.restore(sess, path)
+            feed_d = {G:adj, F:features, L:test_y, M:test_mask, keep_prob: 1.}
+            prediction = sess.run(prediction_op, feed_dict=feed_d)
+            test_acc = sess.run(acc_op, feed_dict=feed_d)
+            test_loss = sess.run(loss_op, feed_dict=feed_d)
 
         print ("Test Accuracy: {}\tTest Loss: {}".format(test_acc, test_loss))
         return prediction
 
-    def get_hidden_activation(self, adj, x, path):
+    def get_weights(self, path, adj, features):
+        W_0 = self.glorot((features.shape[1], self.num_feature_maps), "Weights_Layer_0")
+        W_1 = self.glorot((self.num_feature_maps, self.num_outputs), "Weights_Layer_1")
+        saver = tf.train.Saver()
+        with tf.Session() as sess:
+            saver.restore(sess, path)
+            return W_0.eval(sess), W_1.eval(sess)
+
+    def get_hidden_activation(self, path, adj, features):
+        tf.reset_default_graph()
         G = tf.placeholder(tf.float32, shape=adj.shape)
-        F = tf.placeholder(tf.float32, shape=x.shape)
-        H_1_op, H_2_op = self.build_model(G, F, adj.shape[0], x.shape[1])
+        F = tf.placeholder(tf.float32, shape=features.shape)
+        H_1_op, H_2_op = self.build_model(G, F, adj.shape[0], features.shape[1])
         saver = tf.train.Saver()
         with tf.Session() as sess:
             saver.restore(sess, path)
             print ("Model successfully loaded!")
-            H_1, H_2 = sess.run([H_1_op, H_2_op], feed_dict={G:adj, F:x})
-        return H_1, H_2
+            H_1, H_2 = sess.run([H_1_op, H_2_op], feed_dict={G:adj, F:features})
+            return H_1, H_2
 
 
     def normalize_adj(self, adj):
@@ -202,7 +213,7 @@ class MYGCN:
         accuracy_all *= mask
         return tf.reduce_mean(accuracy_all)
 
-    def finish_after_training(self, saver, sess, accuracies_test, accuracies_train, cross_entropy_test, predictions):
+    def finish_after_training(self, saver, sess, accuracies_test, accuracies_train, cross_entropy_test, predictions, node_names):
         if not os.path.isdir('training'):
             os.mkdir('training')
             print ("Created Training Subdir")
@@ -217,8 +228,15 @@ class MYGCN:
             pickle.dump((accuracies_test, accuracies_train, cross_entropy_test), f, pickle.HIGHEST_PROTOCOL)
 
         # save the predictions
-        np.savetxt(save_path + 'predictions.tsv', predictions, delimiter='\t', header='Label_Prob\tNot_Label_Prob')
-        
+        print (predictions.shape)
+        with open(save_path + 'predictions.tsv', 'w') as f:
+            f.write('ID\tName\tProb_pos\tProb_neg\n')
+            for pred_idx in range(predictions.shape[0]):
+                f.write('{}\t{}\t{}\t{}\n'.format(node_names[pred_idx, 0],
+                                                  node_names[pred_idx, 1],
+                                                  predictions[pred_idx,0],
+                                                  predictions[pred_idx,1])
+                        )
         # plotting
         print ("Plotting...")
         fig = plt.figure(figsize=(14,8))
@@ -229,9 +247,10 @@ class MYGCN:
 
 
 if __name__ == "__main__":
-    gcn = MYGCN(num_classes=2, dropout_prob=0.5, num_feature_maps=5)
+    gcn = MYGCN(num_classes=2, dropout_prob=0.25, num_feature_maps=36)
+    print ("Loading Data...")
     #adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = load_data('cora')
-    adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = load_hdf_data('../data/preprocessing/legionella_gcn_input.h5')
+    adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names = load_hdf_data('../data/preprocessing/legionella_gcn_input.h5')
     num_nodes = adj.shape[0]
     num_feat = features.shape[1]
 
@@ -241,4 +260,4 @@ if __name__ == "__main__":
     adj = adj.todense()
     #features = features.todense()
     adj = np.asarray(adj)
-    gcn.train_model(adj, features, y_train, y_test, y_val, train_mask, test_mask, val_mask, num_nodes, num_feat, num_epochs=5)
+    gcn.train_model(adj, features, y_train, y_test, y_val, train_mask, test_mask, val_mask, num_nodes, num_feat, node_names, num_epochs=20)
