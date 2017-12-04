@@ -71,19 +71,23 @@ def pagerank(network_path, diff_expr=None, alpha=0.3):
     A list of tuples with the sorted PageRank/NetRank scores and gene names.
     """
     with h5py.File(network_path, 'r') as f:
-        ppi_network = f['consensusPathDB_ppi'][:]
+        ppi_network = f['network'][:]
         gene_names = f['gene_names'][:]
 
-    # compute personalization vector
+    # build networkx graph
+    G = nx.from_numpy_matrix(ppi_network)
+
+    # compute personalization vector and do pagerank/netrank
     if not diff_expr is None:
         personalization = get_personalization_vec(diff_expr, gene_names)
+        pagerank_vals = nx.pagerank(G,
+                                    personalization=personalization,
+                                    alpha=alpha
+                                    )
     else:
-        personalization = None
+        pagerank_vals = nx.pagerank(G)
 
-    # build networkx graph and do pagerank on it
-    G = nx.from_numpy_matrix(ppi_network)
-    pagerank_vals = nx.pagerank(G, personalization=personalization, alpha=alpha)
-
+    # some output statistics
     maxi = max(pagerank_vals, key=pagerank_vals.get)
     print ("Maximum Pagerank: Index: {}\tPagerank: {}".format(maxi, pagerank_vals[maxi]))
     mini = min(pagerank_vals, key=pagerank_vals.get)
