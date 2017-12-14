@@ -116,3 +116,6 @@ venv.bak/
 *.gml
 *.html
 *.cys
+
+# data directory
+data/
