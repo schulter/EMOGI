@@ -1,20 +1,16 @@
 import argparse
 import os, h5py
-import numpy as np
-import pickle
 from datetime import datetime
-import matplotlib.pyplot as plt
 import tensorflow as tf
 import gcn.utils
 from my_gcn import MYGCN
-from scipy.sparse import csr_matrix, lil_matrix
-from gcn.models import GCN
+from scipy.sparse import lil_matrix
 import time
 
-def load_hdf_data(path):
+def load_hdf_data(path, feature_name='features'):
     with h5py.File(path, 'r') as f:
         network = f['network'][:]
-        features = f['features'][:]
+        features = f[feature_name][:]
         node_names = f['gene_names'][:]
         y_train = f['y_train'][:]
         y_test = f['y_test'][:]
@@ -79,10 +75,11 @@ def parse_args():
 if __name__ == "__main__":
     print ("Loading Data...")
     args = parse_args()
-    data = load_hdf_data('../data/simulation/simulated_input_legionella.h5')
+    data = load_hdf_data('../data/preprocessing/legionella_gcn_input.h5', feature_name='features_rep1')
     adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names = data
     num_nodes = adj.shape[0]
     num_feat = features.shape[1]
+    print (adj.shape, features.shape)
 
     features = gcn.utils.preprocess_features(lil_matrix(features))
 
