@@ -2,15 +2,12 @@
 import tensorflow as tf
 #from utils import *
 
-import os, h5py
-import numpy as np
 import pickle
 from datetime import datetime
 import matplotlib.pyplot as plt
-from gcn.layers import GraphConvolution, Dense
-import gcn.utils
+from gcn.layers import GraphConvolution
 from gcn.models import Model
-from gcn.metrics import masked_accuracy, masked_softmax_cross_entropy
+from gcn.metrics import masked_accuracy
 
 class MYGCN (Model):
     def __init__(self, placeholders, input_dim, learning_rate=0.1, num_hidden1=20, num_hidden2=40, pos_loss_multiplier=1, weight_decay=5e-4, **kwargs):
