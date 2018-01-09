@@ -26,6 +26,13 @@ def load_hdf_data(path, feature_name='features'):
             val_mask = None
     return network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names
 
+
+def write_hyper_params(args, file_name):
+    with open(file_name, 'w') as f:
+        for arg in vars(args):
+            f.write('{}\t{}\n'.format(arg, getattr(args, arg)))
+    print ("Hyper-Parameters saved to {}".format(file_name))
+
 def parse_args():
     parser = argparse.ArgumentParser(description='Train GCN model and save to file')
     parser.add_argument('-e', '--epochs', help='Number of Epochs',
@@ -151,18 +158,21 @@ if __name__ == "__main__":
         # predict node classification
         predictions = predict(features, support, y_test, test_mask, placeholders)
 
-        # save model and predictions
+        # create model directory for saving
         root_dir = '../data/GCN/training'
-        if not os.path.isdir(root_dir):
+        if not os.path.isdir(root_dir): # in case training root doesn't exist
             os.mkdir(root_dir)
             print ("Created Training Subdir")
         date_string = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
         os.mkdir(os.path.join(root_dir, date_string))
         save_path = os.path.join(root_dir, date_string)
+
+        # save model
         model_save_path = os.path.join(save_path, 'model.ckpt')
         print ("Save model to {}".format(model_save_path))
         path = model.save(model_save_path, sess=sess)
 
+        # save predictions
         with open(os.path.join(save_path, 'predictions.tsv'), 'w') as f:
             f.write('ID\tName\tProb_pos\tProb_neg\n')
             for pred_idx in range(predictions.shape[0]):
@@ -171,3 +181,6 @@ if __name__ == "__main__":
                                                   predictions[pred_idx,0],
                                                   predictions[pred_idx,1])
                         )
+
+        # save hyper Parameters
+        write_hyper_params(args, os.path.join(save_path, 'hyper_params.txt'))
