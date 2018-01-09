@@ -97,11 +97,11 @@ def pagerank(network_path, diff_expr=None, alpha=0.3):
     pagerank_sorted = sorted(pagerank_vals.items(), key=operator.itemgetter(1))[::-1]
     return pagerank_sorted, gene_names
 
-def write_ranking(pagerank_sorted, gene_names, out_path):
+def write_ranking(ranks_sorted, gene_names, out_path):
     with open(out_path, 'w') as res:
         count = 1
-        res.write('Gene_ID\tGene_Name\tRank\tNetRank_Score\n')
-        for gene_idx, pr in pagerank_sorted:
+        res.write('Gene_ID\tGene_Name\tRank\tScore\n')
+        for gene_idx, pr in ranks_sorted:
             res.write("{}\t{}\t{}\t{}\n".format(gene_names[gene_idx][0], gene_names[gene_idx][1], count, pr))
             count += 1
 
