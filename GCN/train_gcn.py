@@ -82,7 +82,7 @@ def parse_args():
 if __name__ == "__main__":
     print ("Loading Data...")
     args = parse_args()
-    data = load_hdf_data('../data/preprocessing/legionella_gcn_input.h5', feature_name='features_rep1')
+    data = load_hdf_data('../data/simulation/simulated_input_legionella.h5')
     adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names = data
     num_nodes = adj.shape[0]
     num_feat = features.shape[1]
@@ -116,47 +116,7 @@ if __name__ == "__main__":
                       num_hidden1=args.hidden1,
                       num_hidden2=args.hidden2,
                       pos_loss_multiplier=args.loss_mul,
-                      dropout=args.dropout,
                       logging=True)
-
-        def evaluate(features, support, labels, mask, placeholders):
-            feed_dict_val = gcn.utils.construct_feed_dict(features, support, labels, mask, placeholders)
-            loss, acc = sess.run([model.loss, model.accuracy], feed_dict=feed_dict_val)
-            return loss, acc
-
-        def predict(features, support, labels, mask, placeholders):
-            feed_dict_pred = gcn.utils.construct_feed_dict(features, support, labels, mask, placeholders)
-            pred = sess.run(model.predict(), feed_dict=feed_dict_pred)
-            return pred
-
-        sess.run(tf.global_variables_initializer())
-        cost_val = []
-        for epoch in range(args.epochs):
-            t = time.time()
-            feed_dict = gcn.utils.construct_feed_dict(features, support, y_train, train_mask, placeholders)
-            feed_dict.update({placeholders['dropout']: args.dropout})
-            # Training step
-            outs = sess.run([model.opt_op, model.loss, model.accuracy], feed_dict=feed_dict)
-
-            # Validation
-            cost, acc = evaluate(features, support, y_test, test_mask, placeholders)
-            cost_val.append(cost)
-
-            # Print results
-            print("Epoch:", '%04d' % (epoch + 1), "train_loss=", "{:.5f}".format(outs[1]),
-                  "train_acc=", "{:.5f}".format(outs[2]), "val_loss=", "{:.5f}".format(cost),
-                  "val_acc=", "{:.5f}".format(acc))
-        print("Optimization Finished!")
-
-        # Testing
-        test_cost, test_acc = evaluate(features, support, y_test, test_mask, placeholders)
-        print("Test set results:", "cost=", "{:.5f}".format(test_cost),
-        "accuracy=", "{:.5f}".format(test_acc))
-
-        # do final prediction and save model to directory
-
-        # predict node classification
-        predictions = predict(features, support, y_test, test_mask, placeholders)
 
         # create model directory for saving
         root_dir = '../data/GCN/training'
@@ -166,6 +126,52 @@ if __name__ == "__main__":
         date_string = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
         os.mkdir(os.path.join(root_dir, date_string))
         save_path = os.path.join(root_dir, date_string)
+        
+        # initialize writers for TF logs
+        merged = tf.summary.merge_all()
+        writer = tf.summary.FileWriter(save_path, sess.graph)
+
+        def evaluate(features, support, labels, mask, placeholders):
+            feed_dict_val = gcn.utils.construct_feed_dict(features, support, labels, mask, placeholders)
+            loss, acc, aupr = sess.run([model.loss, model.accuracy, model.aupr_score],
+                                       feed_dict=feed_dict_val)
+            return loss, acc, aupr
+
+        def predict(features, support, labels, mask, placeholders):
+            feed_dict_pred = gcn.utils.construct_feed_dict(features, support, labels, mask, placeholders)
+            pred = sess.run(model.predict(), feed_dict=feed_dict_pred)
+            return pred
+
+        sess.run(tf.group(tf.global_variables_initializer(), tf.local_variables_initializer()))
+        cost_val = []
+        for epoch in range(args.epochs):
+            t = time.time()
+            feed_dict = gcn.utils.construct_feed_dict(features, support, y_train, train_mask, placeholders)
+            feed_dict.update({placeholders['dropout']: args.dropout})
+            # Training step
+            outs = sess.run([model.opt_op, model.loss, model.accuracy, merged],
+                            feed_dict=feed_dict)
+            writer.add_summary(outs[3], epoch)
+            
+            # Validation
+            cost, acc, aupr = evaluate(features, support, y_test, test_mask, placeholders)
+            cost_val.append(cost)
+
+            # Print results
+            print("Epoch:", '%04d' % (epoch + 1), "train_loss=", "{:.5f}".format(outs[1]),
+                  "train_acc=", "{:.5f}".format(outs[2]), "val_loss=", "{:.5f}".format(cost),
+                  "val_acc=", "{:.5f}".format(acc), "test_AUPR=", "{:.5f}".format(aupr))
+        print("Optimization Finished!")
+
+        # Testing
+        test_cost, test_acc, test_aupr = evaluate(features, support, y_test, test_mask, placeholders)
+        print("Test set results:", "loss=", "{:.5f}".format(test_cost),
+        "accuracy=", "{:.5f}".format(test_acc), "aupr=", "{:.5f}".format(test_aupr))
+
+        # do final prediction and save model to directory
+
+        # predict node classification
+        predictions = predict(features, support, y_test, test_mask, placeholders)
 
         # save model
         model_save_path = os.path.join(save_path, 'model.ckpt')
