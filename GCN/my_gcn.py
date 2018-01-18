@@ -9,21 +9,32 @@ import io
 import numpy as np
 import matplotlib.pyplot as plt
 import math
+from tensorboard import summary as summary_lib
 bestSplit = lambda x: (round(math.sqrt(x)), math.ceil(x / round(math.sqrt(x))))
 
 class MyGraphConvolution(GraphConvolution):
     def make_weights_plot(self, weight_mat):
         """Create a pyplot plot and save to buffer."""
-        print (weight_mat.get_shape())
-
         fig = plt.figure()
-        print (type(weight_mat.get_shape()[1]))
-        num_rows, num_cols = bestSplit(int(weight_mat.get_shape()[1]))
-        for i in range(weight_mat.get_shape()[1]):
-            plt.bar(np.arange(0, 24), weight_mat[i,:])
+        num_rows, num_cols = bestSplit(20)
+        for i in range(20):
+            #np_points = np.array(weight_mat[:,i])
+            print (weight_mat[:,i].get_shape())
+            #plt.bar(np.arange(0, int(24)), weight_mat[:,i])
+            plt.plot(weight_mat[:,i])
             plt.title(self.name + '_weights_{}'.format(i))
         buf = io.BytesIO()
         fig.savefig(buf, format='png')
+        buf.seek(0)
+        return buf
+
+    def gen_plot(self, mat):
+        """Create a pyplot plot and save to buffer."""
+        plt.figure()
+        plt.plot(mat[0])
+        plt.title("test")
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png')
         buf.seek(0)
         return buf
 
@@ -31,10 +42,11 @@ class MyGraphConvolution(GraphConvolution):
         for var in self.vars:
             tf.summary.histogram(self.name + '/vars/' + var, self.vars[var])
             if var.startswith('weight'):
-                png = self.make_weights_plot(self.vars[var])
-                img = tf.image.decode_png(png.getvalue(), channels=4)
-                img = tf.expand_dims(img, 0)
-                tf.summary.image("plot", img)
+                print (var)
+                #png = self.gen_plot(self.vars[var])
+                #img = tf.image.decode_png(png.getvalue(), channels=4)
+                #img = tf.expand_dims(img, 0)
+                tf.summary.image("weight_importance", tf.expand_dims(tf.expand_dims(self.vars[var], 0), -1))
 
 class MYGCN (Model):
     def __init__(self, placeholders, input_dim, learning_rate=0.1, num_hidden1=20, num_hidden2=40, pos_loss_multiplier=1, weight_decay=5e-4, **kwargs):
@@ -54,12 +66,12 @@ class MYGCN (Model):
         self.weight_decay = weight_decay
         self.pos_loss_multiplier = pos_loss_multiplier
         self.aupr_score = 0
+        self.auroc_score = 0
 
         # training, prediction and loss functions
         self.build()
 
     def _build(self):
-        print ("logging", self.logging)
         self.layers.append(MyGraphConvolution(input_dim=self.input_dim,
                                             output_dim=self.num_hidden1,
                                             placeholders=self.placeholders,
@@ -68,8 +80,7 @@ class MYGCN (Model):
                                             sparse_inputs=True,
                                             logging=self.logging)
         )
-        """
-        self.layers.append(GraphConvolution(input_dim=self.num_hidden1,
+        self.layers.append(MyGraphConvolution(input_dim=self.num_hidden1,
                                             output_dim=self.num_hidden2,
                                             placeholders=self.placeholders,
                                             act=tf.nn.relu,
@@ -77,8 +88,7 @@ class MYGCN (Model):
                                             sparse_inputs=False,
                                             logging=self.logging)
         )
-        """
-        self.layers.append(MyGraphConvolution(input_dim=self.num_hidden1,
+        self.layers.append(MyGraphConvolution(input_dim=self.num_hidden2,
                                             output_dim=self.output_dim,
                                             placeholders=self.placeholders,
                                             act=lambda x:x,
@@ -105,15 +115,22 @@ class MYGCN (Model):
                                         self.placeholders['labels'],
                                         self.placeholders['labels_mask']
                                         )
-        self.aupr_score = self.masked_aupr_score(self.outputs,
-                                                 self.placeholders['labels'],
-                                                 self.placeholders['labels_mask'])
+        self.aupr_score, update_op_pr = self.masked_auc_score(self.outputs,
+                                                              self.placeholders['labels'],
+                                                              self.placeholders['labels_mask'],
+                                                              curve='PR')
+        self.auroc_score, update_op_roc = self.masked_auc_score(self.outputs,
+                                                                self.placeholders['labels'],
+                                                                self.placeholders['labels_mask'],
+                                                                curve='ROC')
         if self.logging:
             tf.summary.scalar('accuracy', self.accuracy)
-            tf.summary.scalar('AUPR', self.aupr_score)
+            tf.summary.scalar('AUPR', update_op_pr)
+            tf.summary.scalar('AUROC', update_op_roc)
+
 
     def _aupr_score(self):
-        self.aupr_score = self.masked_aupr_score(self.outputs,
+        self.aupr_score, _ = self.masked_aupr_score(self.outputs,
                                       self.placeholders['labels'],
                                       self.placeholders['labels_mask']
                                       )
@@ -127,13 +144,14 @@ class MYGCN (Model):
         loss *= mask
         return tf.reduce_mean(loss)
 
-    def masked_aupr_score(self, scores, labels, mask):
-        print (scores[:,0].get_shape(), labels[:,0].get_shape(), mask.get_shape())
-        aupr, update_op = tf.metrics.auc(labels=labels[:, 0],
-                                         predictions=scores[:, 0],weights=mask,
-                                         curve='PR'
+    def masked_auc_score(self, scores, labels, mask, curve='PR'):
+        prediction = tf.nn.softmax(scores)
+        aupr, update_op = tf.metrics.auc(labels=labels[:,0],
+                                         predictions=prediction[:,0],
+                                         weights=mask,
+                                         curve=curve
                                          )
-        return update_op
+        return aupr, update_op
 
     def predict(self):
         return tf.nn.softmax(self.outputs)

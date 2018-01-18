@@ -6,6 +6,12 @@ import gcn.utils
 from my_gcn import MYGCN
 from scipy.sparse import lil_matrix
 import time
+import math
+import matplotlib.pyplot as plt
+import numpy as np
+import seaborn
+bestSplit = lambda x: (round(math.sqrt(x)), math.ceil(x / round(math.sqrt(x))))
+
 
 def load_hdf_data(path, feature_name='features'):
     with h5py.File(path, 'r') as f:
@@ -25,6 +31,43 @@ def load_hdf_data(path, feature_name='features'):
         else:
             val_mask = None
     return network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names
+
+def plot_weights(sess, model, dir_name):
+    for var in model.vars:
+        layer_num = int(var.split('/')[1].strip().split('_')[1])
+        # read weight matrix from TF
+        weight_mat = model.vars[var].eval(session=sess)
+        feature_size, embed_size = weight_mat.shape
+
+        # assign feature names (either experiments or embeddings from prev layer)
+        if layer_num == 1:
+            feature_names = ['Pam3T16', 'Pam3T8', 'Pam3T16.1',
+                             'Pam3T8.1', 'Pam3T16.2', 'Pam3T8.2',
+                             'ControlT8', 'ControlT16', 'ControlT8.1',
+                             'ControlT16.1', 'ControlT8.2', 'ControlT16.2',
+                             'gfpmT8', 'gfpmT16', 'gfpmT8.1', 'gfpmT16.1',
+                             'gfpmT8.2', 'gfpmT16.2', 'gfppT8', 'gfppT16',
+                             'gfppT8.1', 'gfppT16.1', 'gfppT8.2', 'gfppT16.2']
+        else:
+            feature_names = ['filter_{}'.format(i) for i in range(feature_size)]
+
+        # plot figure itself
+        fig = plt.figure(figsize=(30, 20))
+        plt.gcf().subplots_adjust(left=0.2)
+        num_rows, num_cols = bestSplit(embed_size)
+        for i in range(embed_size):
+            if i > 1:
+                ax = plt.subplot(num_rows, num_cols, i+1, sharey=ax, sharex=ax)
+            else:
+                ax = plt.subplot(num_rows, num_cols, i+1)
+            plt.barh(np.arange(0, feature_size), weight_mat[:,i])
+            plt.yticks(np.arange(0, feature_size), feature_names)
+            #ax.set_yticklabels(feature_names, rotation=0)
+            if i % num_cols != 0: # subplot not one of the left hand side
+                plt.setp(ax.get_yticklabels(), visible=False)
+            if i / num_rows < num_rows-1: # subplot not in the last row
+                plt.setp(ax.get_xticklabels(), visible=False)
+        fig.savefig(os.path.join(dir_name, 'weights_{}.png'.format(layer_num)), format='png', dpi=200)
 
 
 def write_hyper_params(args, file_name):
@@ -126,16 +169,16 @@ if __name__ == "__main__":
         date_string = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
         os.mkdir(os.path.join(root_dir, date_string))
         save_path = os.path.join(root_dir, date_string)
-        
+
         # initialize writers for TF logs
         merged = tf.summary.merge_all()
         writer = tf.summary.FileWriter(save_path, sess.graph)
 
         def evaluate(features, support, labels, mask, placeholders):
             feed_dict_val = gcn.utils.construct_feed_dict(features, support, labels, mask, placeholders)
-            loss, acc, aupr = sess.run([model.loss, model.accuracy, model.aupr_score],
+            loss, acc, aupr, auroc = sess.run([model.loss, model.accuracy, model.aupr_score, model.auroc_score],
                                        feed_dict=feed_dict_val)
-            return loss, acc, aupr
+            return loss, acc, aupr, auroc
 
         def predict(features, support, labels, mask, placeholders):
             feed_dict_pred = gcn.utils.construct_feed_dict(features, support, labels, mask, placeholders)
@@ -152,21 +195,23 @@ if __name__ == "__main__":
             outs = sess.run([model.opt_op, model.loss, model.accuracy, merged],
                             feed_dict=feed_dict)
             writer.add_summary(outs[3], epoch)
-            
+
             # Validation
-            cost, acc, aupr = evaluate(features, support, y_test, test_mask, placeholders)
+            cost, acc, aupr, auroc = evaluate(features, support, y_test, test_mask, placeholders)
             cost_val.append(cost)
 
             # Print results
             print("Epoch:", '%04d' % (epoch + 1), "train_loss=", "{:.5f}".format(outs[1]),
                   "train_acc=", "{:.5f}".format(outs[2]), "val_loss=", "{:.5f}".format(cost),
-                  "val_acc=", "{:.5f}".format(acc), "test_AUPR=", "{:.5f}".format(aupr))
+                  "val_acc=", "{:.5f}".format(acc), "test_AUPR=", "{:.5f}".format(aupr),
+                  "test_AUROC=", "{:.5f}".format(auroc))
         print("Optimization Finished!")
 
         # Testing
-        test_cost, test_acc, test_aupr = evaluate(features, support, y_test, test_mask, placeholders)
+        test_cost, test_acc, test_aupr, test_auroc = evaluate(features, support, y_test, test_mask, placeholders)
         print("Test set results:", "loss=", "{:.5f}".format(test_cost),
-        "accuracy=", "{:.5f}".format(test_acc), "aupr=", "{:.5f}".format(test_aupr))
+        "accuracy=", "{:.5f}".format(test_acc), "aupr=", "{:.5f}".format(test_aupr),
+        "auroc=", "{:.5f}".format(test_auroc))
 
         # do final prediction and save model to directory
 
@@ -190,3 +235,4 @@ if __name__ == "__main__":
 
         # save hyper Parameters
         write_hyper_params(args, os.path.join(save_path, 'hyper_params.txt'))
+        plot_weights(sess, model, save_path)
