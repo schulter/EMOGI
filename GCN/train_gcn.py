@@ -10,6 +10,7 @@ import math
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn
+from tensorflow.contrib.tensorboard.plugins import projector
 bestSplit = lambda x: (round(math.sqrt(x)), math.ceil(x / round(math.sqrt(x))))
 
 
@@ -172,6 +173,7 @@ if __name__ == "__main__":
 
         # initialize writers for TF logs
         merged = tf.summary.merge_all()
+        config = projector.ProjectorConfig()
         writer = tf.summary.FileWriter(save_path, sess.graph)
 
         def evaluate(features, support, labels, mask, placeholders):
@@ -213,15 +215,31 @@ if __name__ == "__main__":
         "accuracy=", "{:.5f}".format(test_acc), "aupr=", "{:.5f}".format(test_aupr),
         "auroc=", "{:.5f}".format(test_auroc))
 
-        # do final prediction and save model to directory
-
+        # add embeddings. This is not optimal here. TODO: Add embeddings in class
+        config = projector.ProjectorConfig()
+        i = 0
+        for output in model.activations[1:]:
+            test_dict = gcn.utils.construct_feed_dict(features, support, y_test, test_mask, placeholders)
+            print (type(output))
+            act = output.eval(feed_dict=test_dict, session=sess)
+            print (i, act.shape, type(act))
+            embedding_var = tf.Variable(act, name='embedding_{}'.format(i))
+            sess.run(embedding_var.initializer)
+            embedding = config.embeddings.add()
+            embedding.tensor_name = embedding_var.name
+            i += 1
+        projector.visualize_embeddings(writer, config)
+        
         # predict node classification
         predictions = predict(features, support, y_test, test_mask, placeholders)
 
         # save model
         model_save_path = os.path.join(save_path, 'model.ckpt')
         print ("Save model to {}".format(model_save_path))
-        path = model.save(model_save_path, sess=sess)
+        #path = model.save(model_save_path, sess=sess)
+        saver = tf.train.Saver()
+        path = saver.save(sess, model_save_path)
+        
 
         # save predictions
         with open(os.path.join(save_path, 'predictions.tsv'), 'w') as f:

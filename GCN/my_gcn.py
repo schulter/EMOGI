@@ -6,10 +6,8 @@ from gcn.layers import GraphConvolution
 from gcn.models import Model
 from gcn.metrics import masked_accuracy
 import io
-import numpy as np
 import matplotlib.pyplot as plt
 import math
-from tensorboard import summary as summary_lib
 bestSplit = lambda x: (round(math.sqrt(x)), math.ceil(x / round(math.sqrt(x))))
 
 class MyGraphConvolution(GraphConvolution):
@@ -28,25 +26,28 @@ class MyGraphConvolution(GraphConvolution):
         buf.seek(0)
         return buf
 
-    def gen_plot(self, mat):
-        """Create a pyplot plot and save to buffer."""
-        plt.figure()
-        plt.plot(mat[0])
-        plt.title("test")
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png')
-        buf.seek(0)
-        return buf
 
     def _log_vars(self):
         for var in self.vars:
             tf.summary.histogram(self.name + '/vars/' + var, self.vars[var])
+            tensor = self.vars[var]
             if var.startswith('weight'):
-                print (var)
-                #png = self.gen_plot(self.vars[var])
-                #img = tf.image.decode_png(png.getvalue(), channels=4)
-                #img = tf.expand_dims(img, 0)
                 tf.summary.image("weight_importance", tf.expand_dims(tf.expand_dims(self.vars[var], 0), -1))
+            with tf.name_scope('stats_var_{}'.format(var)):
+                tf.summary.scalar('mean', tf.reduce_mean(tensor))
+                tf.summary.scalar('max', tf.reduce_max(tensor))
+                tf.summary.scalar('min', tf.reduce_min(tensor))
+                tf.summary.histogram('histogram', tensor)
+
+    def __call__(self, inputs):
+        with tf.name_scope(self.name):
+            if self.logging and not self.sparse_inputs:
+                tf.summary.histogram(self.name + '/inputs', inputs)
+            outputs = self._call(inputs)
+            if self.logging:
+                tf.summary.histogram(self.name + '/outputs', outputs)
+            return outputs
+
 
 class MYGCN (Model):
     def __init__(self, placeholders, input_dim, learning_rate=0.1, num_hidden1=20, num_hidden2=40, pos_loss_multiplier=1, weight_decay=5e-4, **kwargs):
@@ -160,12 +161,14 @@ class MYGCN (Model):
         if not sess:
             raise AttributeError("TensorFlow session not provided.")
         saver = tf.train.Saver(self.vars)
+        print (self.vars)
         save_path = saver.save(sess, path)
         print("Model saved in file: %s" % save_path)
 
     def load(self, path, sess=None):
         if not sess:
             raise AttributeError("TensorFlow session not provided.")
+        print (self.vars)
         saver = tf.train.Saver(self.vars)
         saver.restore(sess, path)
         print("Model restored from file: %s" % path)
