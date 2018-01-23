@@ -220,26 +220,24 @@ if __name__ == "__main__":
         i = 0
         for output in model.activations[1:]:
             test_dict = gcn.utils.construct_feed_dict(features, support, y_test, test_mask, placeholders)
-            print (type(output))
             act = output.eval(feed_dict=test_dict, session=sess)
-            print (i, act.shape, type(act))
-            embedding_var = tf.Variable(act, name='embedding_{}'.format(i))
+            embedding_var = tf.Variable(act, name='activation_layer_{}'.format(i))
             sess.run(embedding_var.initializer)
             embedding = config.embeddings.add()
             embedding.tensor_name = embedding_var.name
             i += 1
         projector.visualize_embeddings(writer, config)
-        
+
         # predict node classification
         predictions = predict(features, support, y_test, test_mask, placeholders)
 
         # save model
         model_save_path = os.path.join(save_path, 'model.ckpt')
         print ("Save model to {}".format(model_save_path))
-        #path = model.save(model_save_path, sess=sess)
-        saver = tf.train.Saver()
-        path = saver.save(sess, model_save_path)
-        
+        path = model.save(model_save_path, sess=sess)
+        #saver = tf.train.Saver()
+        #path = saver.save(sess, model_save_path)
+
 
         # save predictions
         with open(os.path.join(save_path, 'predictions.tsv'), 'w') as f:

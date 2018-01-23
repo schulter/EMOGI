@@ -33,7 +33,7 @@ class MyGraphConvolution(GraphConvolution):
             tensor = self.vars[var]
             if var.startswith('weight'):
                 tf.summary.image("weight_importance", tf.expand_dims(tf.expand_dims(self.vars[var], 0), -1))
-            with tf.name_scope('stats_var_{}'.format(var)):
+            with tf.name_scope('stats_{}'.format(var)):
                 tf.summary.scalar('mean', tf.reduce_mean(tensor))
                 tf.summary.scalar('max', tf.reduce_max(tensor))
                 tf.summary.scalar('min', tf.reduce_min(tensor))
@@ -79,6 +79,7 @@ class MYGCN (Model):
                                             act=tf.nn.relu,
                                             dropout=True,
                                             sparse_inputs=True,
+                                            name='gclayer_1',
                                             logging=self.logging)
         )
         self.layers.append(MyGraphConvolution(input_dim=self.num_hidden1,
@@ -87,6 +88,7 @@ class MYGCN (Model):
                                             act=tf.nn.relu,
                                             dropout=True,
                                             sparse_inputs=False,
+                                            name='gclayer_2',
                                             logging=self.logging)
         )
         self.layers.append(MyGraphConvolution(input_dim=self.num_hidden2,
@@ -95,6 +97,7 @@ class MYGCN (Model):
                                             act=lambda x:x,
                                             dropout=True,
                                             sparse_inputs=False,
+                                            name='gclayer_3',
                                             logging=self.logging)
         )
 
