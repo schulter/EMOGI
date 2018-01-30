@@ -5,13 +5,61 @@ import tensorflow as tf
 import gcn.utils
 from my_gcn import MYGCN
 from scipy.sparse import lil_matrix
+import scipy.sparse as sp
 import time
 import math
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
+from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_curve
+from sklearn.metrics import precision_recall_curve, average_precision_score
+
 import numpy as np
+import pandas as pd
 import seaborn
 from tensorflow.contrib.tensorboard.plugins import projector
+import pickle as pkl
+import networkx as nx
+
 bestSplit = lambda x: (round(math.sqrt(x)), math.ceil(x / round(math.sqrt(x))))
+
+def load_cora():
+    """Load data."""
+    names = ['x', 'y', 'tx', 'ty', 'allx', 'ally', 'graph']
+    objects = []
+    for i in range(len(names)):
+        with open("../../gcn/gcn/data/ind.cora.{}".format(names[i]), 'rb') as f:
+            objects.append(pkl.load(f, encoding='latin1'))
+    x, y, tx, ty, allx, ally, graph = tuple(objects)
+    test_idx_reorder = gcn.utils.parse_index_file("../../gcn/gcn/data/ind.cora.test.index")
+    test_idx_range = np.sort(test_idx_reorder)
+
+    features = sp.vstack((allx, tx)).tolil()
+    features[test_idx_reorder, :] = features[test_idx_range, :]
+    adj = nx.adjacency_matrix(nx.from_dict_of_lists(graph))
+
+    labels = np.vstack((ally, ty))
+    labels[test_idx_reorder, :] = labels[test_idx_range, :]
+
+    idx_test = test_idx_range.tolist()
+    idx_train = range(len(y))
+    idx_val = range(len(y), len(y)+500)
+
+    train_mask = gcn.utils.sample_mask(idx_train, labels.shape[0])
+    val_mask = gcn.utils.sample_mask(idx_val, labels.shape[0])
+    test_mask = gcn.utils.sample_mask(idx_test, labels.shape[0])
+
+    y_train = np.zeros(labels.shape)
+    y_val = np.zeros(labels.shape)
+    y_test = np.zeros(labels.shape)
+    y_train[train_mask, :] = labels[train_mask, :]
+    y_val[val_mask, :] = labels[val_mask, :]
+    y_test[test_mask, :] = labels[test_mask, :]
+
+    return adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask
 
 
 def load_hdf_data(path, feature_name='features'):
@@ -32,6 +80,18 @@ def load_hdf_data(path, feature_name='features'):
         else:
             val_mask = None
     return network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names
+
+def get_color_dataframe(node_names, predictions, y_train, y_test):
+    labels_df = pd.DataFrame(node_names, index=node_names[:, 0], columns=['ID', 'name']).drop('ID', axis=1)
+    labels_df['label'] = (y_train[:,0] | y_test[:,0])
+    labels_df['train_label'] = y_train[:, 0]
+    labels_df['test_label'] = y_test[:, 0]
+    labels_df['prediction'] = predictions[:, 0] >= 0.5
+    labels_df['color'] = 'gray'
+    labels_df.loc[labels_df.prediction == 1, 'color'] = 'blue'
+    labels_df.loc[labels_df.train_label == 1, 'color'] = 'green'
+    labels_df.loc[labels_df.test_label == 1, 'color'] = 'red'
+    return labels_df
 
 def plot_weights(sess, model, dir_name):
     for var in model.vars:
@@ -70,6 +130,66 @@ def plot_weights(sess, model, dir_name):
                 plt.setp(ax.get_xticklabels(), visible=False)
         fig.savefig(os.path.join(dir_name, 'weights_{}.png'.format(layer_num)), format='png', dpi=200)
 
+def plot_tsne(sess, model, feed_dict, colors, dir_name):
+    print ("Plotting TSNE for activaions...")
+    # assign color to the labels
+    node_names
+    layer_num = 0
+    for layer_act in model.activations:
+        if layer_num == 0: # don't plot input distribution
+            layer_num += 1
+            continue
+        else:
+            activation = sess.run(layer_act, feed_dict=feed_dict)
+            if activation.shape[1] > 1:
+                embedding = PCA(n_components=2).fit_transform(activation)
+            else: continue
+        fig = plt.figure(figsize=(14, 8))
+        plt.scatter(embedding[:, 0], embedding[:, 1], c=colors.color, alpha=0.7)
+        plt.xlabel('TSNE Component 1')
+        plt.ylabel('TSNE Component 2')
+        plt.title('TSNE Plot: Hidden Layer {}'.format(layer_num))
+
+        # legend
+        pred_nodes = mpatches.Patch(color='blue', label='Predicted Node')
+        train_nodes = mpatches.Patch(color='green', label='Training Nodes')
+        test_nodes = mpatches.Patch(color='red', label='Test Nodes')
+        not_involved = mpatches.Patch(color='gray', label='Not Predicted and not labeled')
+        plt.legend(handles=[pred_nodes, train_nodes, test_nodes, not_involved])
+
+        # save
+        fig.savefig(os.path.join(dir_name, 'tsne_{}.png'.format(layer_num)), dpi=300)
+        print ("Plotted TSNE for layer {}".format(layer_num))
+        layer_num += 1
+
+def plot_roc_pr_curves(predictions, y_train, y_test, model_dir):
+    # define y_true and y_score
+    y = np.logical_or(y_train, y_test)
+    print (predictions.shape)
+    y_score = predictions[:, 0]
+    fpr, tpr, thresholds = roc_curve(y[:, 0], y_score)
+    roc_auc = roc_auc_score(y[:, 0], y_score)
+
+    # plot ROC curve
+    fig = plt.figure(figsize=(14, 8))
+    plt.plot(fpr, tpr, lw=3, label='AUC = {0:.2f}'.format(roc_auc))
+    plt.plot([0, 1], [0, 1], color='gray', lw=3, linestyle='--', label='Random')
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC Curve Prediction on Train and Test')
+    plt.legend(loc='lower right')
+    fig.savefig(os.path.join(model_dir,'roc_curve.png'))
+
+    # plot PR-Curve
+    pr, rec, thresholds = precision_recall_curve(y[:, 0], y_score)
+    aupr = average_precision_score(y[:,0], y_score)
+    fig = plt.figure(figsize=(14, 8))
+    plt.plot(pr, rec, lw=3, label='AUPR = {0:.2f}'.format(aupr))
+    plt.xlabel('Precision')
+    plt.ylabel('Recall')
+    plt.title('Precision-Recall Curve on Train and Test')
+    plt.legend()
+    fig.savefig(os.path.join(model_dir, 'prec_recall.png'))
 
 def write_hyper_params(args, file_name):
     with open(file_name, 'w') as f:
@@ -126,11 +246,13 @@ def parse_args():
 if __name__ == "__main__":
     print ("Loading Data...")
     args = parse_args()
-    data = load_hdf_data('../data/simulation/simulated_input_legionella.h5')
-    adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names = data
+    #data = load_hdf_data('../data/simulation/simulated_input_legionella_balanced.h5')
+    #adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names = data
+    data = load_cora()
+    adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = data
+    node_names = np.array([[str(i), str(i)] for i in np.arange(features.shape[0])])
     num_nodes = adj.shape[0]
     num_feat = features.shape[1]
-    print (adj.shape, features.shape)
 
     features = gcn.utils.preprocess_features(lil_matrix(features))
 
@@ -230,7 +352,7 @@ if __name__ == "__main__":
 
         # predict node classification
         predictions = predict(features, support, y_test, test_mask, placeholders)
-
+        print (predictions.shape)
         # save model
         model_save_path = os.path.join(save_path, 'model.ckpt')
         print ("Save model to {}".format(model_save_path))
@@ -241,14 +363,17 @@ if __name__ == "__main__":
 
         # save predictions
         with open(os.path.join(save_path, 'predictions.tsv'), 'w') as f:
-            f.write('ID\tName\tProb_pos\tProb_neg\n')
+            f.write('ID\tName\tProb_pos\n')
             for pred_idx in range(predictions.shape[0]):
-                f.write('{}\t{}\t{}\t{}\n'.format(node_names[pred_idx, 0],
+                f.write('{}\t{}\t{}\n'.format(node_names[pred_idx, 0],
                                                   node_names[pred_idx, 1],
-                                                  predictions[pred_idx,0],
-                                                  predictions[pred_idx,1])
+                                                  predictions[pred_idx, 0])
                         )
+        # construct color DataFrame for TSNE plots
+        colors = get_color_dataframe(node_names, predictions, y_train, y_test)
 
         # save hyper Parameters
         write_hyper_params(args, os.path.join(save_path, 'hyper_params.txt'))
         plot_weights(sess, model, save_path)
+        plot_tsne(sess, model, test_dict, colors, save_path)
+        plot_roc_pr_curves(predictions, y_train, y_test, save_path)

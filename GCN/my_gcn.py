@@ -4,7 +4,7 @@ import tensorflow as tf
 
 from gcn.layers import GraphConvolution
 from gcn.models import Model
-from gcn.metrics import masked_accuracy
+#from gcn.metrics import masked_accuracy
 import io
 import matplotlib.pyplot as plt
 import math
@@ -68,7 +68,7 @@ class MYGCN (Model):
         self.pos_loss_multiplier = pos_loss_multiplier
         self.aupr_score = 0
         self.auroc_score = 0
-
+        print ("output_dim", self.output_dim)
         # training, prediction and loss functions
         self.build()
 
@@ -115,10 +115,9 @@ class MYGCN (Model):
             tf.summary.scalar('loss', self.loss)
 
     def _accuracy(self):
-        self.accuracy = masked_accuracy(self.outputs,
-                                        self.placeholders['labels'],
-                                        self.placeholders['labels_mask']
-                                        )
+        self.accuracy, update_op_acc = self.masked_accuracy(self.outputs,
+                                                            self.placeholders['labels'],
+                                                            self.placeholders['labels_mask'])
         self.aupr_score, update_op_pr = self.masked_auc_score(self.outputs,
                                                               self.placeholders['labels'],
                                                               self.placeholders['labels_mask'],
@@ -128,7 +127,7 @@ class MYGCN (Model):
                                                                 self.placeholders['labels_mask'],
                                                                 curve='ROC')
         if self.logging:
-            tf.summary.scalar('accuracy', self.accuracy)
+            tf.summary.scalar('accuracy', update_op_acc)
             tf.summary.scalar('AUPR', update_op_pr)
             tf.summary.scalar('AUROC', update_op_roc)
 
@@ -141,15 +140,34 @@ class MYGCN (Model):
 
     def masked_softmax_cross_entropy_weight(self, scores, labels, mask):
         """Softmax cross-entropy loss with masking and weight for positives."""
-        loss = tf.nn.softmax_cross_entropy_with_logits(logits=scores, labels=labels)
-        loss += labels[:,0]*self.pos_loss_multiplier
+        if scores.shape[1] > 1:
+            prediction = tf.nn.softmax(scores)
+        else:
+            prediction = tf.nn.sigmoid(scores)
+        loss = tf.nn.weighted_cross_entropy_with_logits(logits=scores[:, 0],
+                                                        targets=labels[:, 0],
+                                                        pos_weight=self.pos_loss_multiplier)
+        print (loss.shape)
         mask = tf.cast(mask, dtype=tf.float32)
         mask /= tf.reduce_mean(mask)
         loss *= mask
         return tf.reduce_mean(loss)
 
+    def masked_accuracy(self, scores, labels, mask):
+        if scores.shape[1] > 1:
+            prediction = tf.nn.softmax(scores)
+        else:
+            prediction = tf.nn.sigmoid(scores)
+        return tf.metrics.accuracy(labels=labels[:, 0],
+                                   predictions=prediction[:, 0],
+                                   weights=mask)
+
+
     def masked_auc_score(self, scores, labels, mask, curve='PR'):
-        prediction = tf.nn.softmax(scores)
+        if scores.shape[1] > 1:
+            prediction = tf.nn.softmax(scores)
+        else:
+            prediction = tf.nn.sigmoid(scores)
         aupr, update_op = tf.metrics.auc(labels=labels[:,0],
                                          predictions=prediction[:,0],
                                          weights=mask,
@@ -158,7 +176,10 @@ class MYGCN (Model):
         return aupr, update_op
 
     def predict(self):
-        return tf.nn.softmax(self.outputs)
+        if self.outputs.shape[1] > 1:
+            return tf.nn.softmax(self.outputs)
+        else:
+            return tf.nn.sigmoid(self.outputs)
 
     def save(self, path, sess=None):
         if not sess:
