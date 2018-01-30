@@ -246,11 +246,11 @@ def parse_args():
 if __name__ == "__main__":
     print ("Loading Data...")
     args = parse_args()
-    #data = load_hdf_data('../data/simulation/simulated_input_legionella_balanced.h5')
-    #adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names = data
-    data = load_cora()
-    adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = data
-    node_names = np.array([[str(i), str(i)] for i in np.arange(features.shape[0])])
+    data = load_hdf_data('../data/cancer/hotnet_gcn_input_unbalanced.h5')
+    adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names = data
+    #data = load_cora()
+    #adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = data
+    #node_names = np.array([[str(i), str(i)] for i in np.arange(features.shape[0])])
     num_nodes = adj.shape[0]
     num_feat = features.shape[1]
 

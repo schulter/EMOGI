@@ -140,14 +140,16 @@ class MYGCN (Model):
 
     def masked_softmax_cross_entropy_weight(self, scores, labels, mask):
         """Softmax cross-entropy loss with masking and weight for positives."""
-        if scores.shape[1] > 1:
-            prediction = tf.nn.softmax(scores)
-        else:
+        if scores.shape[1] > 1: # softmax activation in last layer, no weights
+            loss = tf.nn.softmax_cross_entropy_with_logits(logits=scores,
+                                                           labels=labels)
+        else: # two classes, let's do sigmoid and weights
             prediction = tf.nn.sigmoid(scores)
-        loss = tf.nn.weighted_cross_entropy_with_logits(logits=scores[:, 0],
-                                                        targets=labels[:, 0],
-                                                        pos_weight=self.pos_loss_multiplier)
-        print (loss.shape)
+            loss = tf.nn.weighted_cross_entropy_with_logits(targets=labels,
+                                                            logits=prediction,
+                                                            pos_weight=self.pos_loss_multiplier)
+        # mask loss for nodes we don't know
+        print (loss.shape, mask.shape)
         mask = tf.cast(mask, dtype=tf.float32)
         mask /= tf.reduce_mean(mask)
         loss *= mask
@@ -155,12 +157,18 @@ class MYGCN (Model):
 
     def masked_accuracy(self, scores, labels, mask):
         if scores.shape[1] > 1:
-            prediction = tf.nn.softmax(scores)
+            preds = tf.nn.softmax(scores)
+            correct_prediction = tf.equal(tf.argmax(preds, 1), tf.argmax(labels, 1))
+            accuracy_all = tf.cast(correct_prediction, tf.float32)
+            mask = tf.cast(mask, dtype=tf.float32)
+            mask /= tf.reduce_mean(mask)
+            accuracy_all *= mask
+            return tf.reduce_mean(accuracy_all), tf.reduce_mean(accuracy_all)
         else:
-            prediction = tf.nn.sigmoid(scores)
-        return tf.metrics.accuracy(labels=labels[:, 0],
-                                   predictions=prediction[:, 0],
-                                   weights=mask)
+            prediction = tf.greater(tf.nn.sigmoid(scores), 0.5)
+            return tf.metrics.accuracy(labels=labels,
+                                       predictions=prediction,
+                                       weights=mask)
 
 
     def masked_auc_score(self, scores, labels, mask, curve='PR'):
