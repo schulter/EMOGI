@@ -136,7 +136,7 @@ def parse_args():
 if __name__ == "__main__":
     print ("Loading Data...")
     args = parse_args()
-    data = load_hdf_data('../data/simulation/simulated_input_legionella_unbalanced.h5')
+    data = load_hdf_data('../data/preprocessing/legionella_gcn_input_unbalanced.h5', feature_name='features_rep1')
     adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names = data
     #data = load_cora()
     #adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = data
@@ -183,18 +183,18 @@ if __name__ == "__main__":
                           num_hidden2=args.hidden2,
                           pos_loss_multiplier=args.loss_mul,
                           logging=True)
-    
+
             def evaluate(features, support, labels, mask, placeholders):
                 feed_dict_val = gcn.utils.construct_feed_dict(features, support, labels, mask, placeholders)
                 loss, acc, aupr, auroc = sess.run([model.loss, model.accuracy, model.aupr_score, model.auroc_score],
                                            feed_dict=feed_dict_val)
                 return loss, acc, aupr, auroc
-    
+
             def predict(features, support, labels, mask, placeholders):
                 feed_dict_pred = gcn.utils.construct_feed_dict(features, support, labels, mask, placeholders)
                 pred = sess.run(model.predict(), feed_dict=feed_dict_pred)
                 return pred
-    
+
             merged = tf.summary.merge_all()
             sess.run(tf.group(tf.global_variables_initializer(), tf.local_variables_initializer()))
             cost_val = []
@@ -205,19 +205,23 @@ if __name__ == "__main__":
                 # Training step
                 outs = sess.run([model.opt_op, model.loss, model.accuracy, merged],
                                 feed_dict=feed_dict)
-    
+
                 # Validation
                 cost, acc, aupr, auroc = evaluate(features, support, y_test, test_mask, placeholders)
                 cost_val.append(cost)
-    
+                print("Epoch:", '%04d' % (epoch + 1), "train_loss=", "{:.5f}".format(outs[1]),
+                      "train_acc=", "{:.5f}".format(outs[2]), "val_loss=", "{:.5f}".format(cost),
+                      "val_acc=", "{:.5f}".format(acc), "test_AUPR=", "{:.5f}".format(aupr),
+                      "test_AUROC=", "{:.5f}".format(auroc))
+
             # Testing
             test_cost, test_acc, test_aupr, test_auroc = evaluate(features, support, y_test, test_mask, placeholders)
             print("[Optimization done CV {}] loss={:.5f} accuracy={:.5f} aupr={:.5f} auroc={:.5f}".format(
                     cv_run, test_cost, test_acc, test_aupr, test_auroc))
-    
+
             # predict node classification
             predictions = predict(features, support, y_test, test_mask, placeholders)
-    
+
             # save predictions
             with open(os.path.join(save_path, 'predictions_{}.tsv'.format(cv_run)), 'w') as f:
                 f.write('ID\tName\tProb_pos\n')
@@ -227,5 +231,5 @@ if __name__ == "__main__":
                                                       predictions[pred_idx, 0])
                             )
 
-        # save hyper Parameters
-        write_hyper_params(args, os.path.join(save_path, 'hyper_params.txt'))
+    # save hyper Parameters
+    write_hyper_params(args, os.path.join(save_path, 'hyper_params.txt'))

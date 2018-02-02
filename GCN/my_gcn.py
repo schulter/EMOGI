@@ -68,7 +68,6 @@ class MYGCN (Model):
         self.pos_loss_multiplier = pos_loss_multiplier
         self.aupr_score = 0
         self.auroc_score = 0
-        print ("output_dim", self.output_dim)
         # training, prediction and loss functions
         self.build()
 
@@ -149,7 +148,6 @@ class MYGCN (Model):
                                                             logits=prediction,
                                                             pos_weight=self.pos_loss_multiplier)
         # mask loss for nodes we don't know
-        print (loss.shape, mask.shape)
         mask = tf.cast(mask, dtype=tf.float32)
         mask /= tf.reduce_mean(mask)
         loss *= mask
