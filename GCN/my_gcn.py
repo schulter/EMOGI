@@ -130,13 +130,6 @@ class MYGCN (Model):
             tf.summary.scalar('AUPR', update_op_pr)
             tf.summary.scalar('AUROC', update_op_roc)
 
-
-    def _aupr_score(self):
-        self.aupr_score, _ = self.masked_aupr_score(self.outputs,
-                                      self.placeholders['labels'],
-                                      self.placeholders['labels_mask']
-                                      )
-
     def masked_softmax_cross_entropy_weight(self, scores, labels, mask):
         """Softmax cross-entropy loss with masking and weight for positives."""
         if scores.shape[1] > 1: # softmax activation in last layer, no weights

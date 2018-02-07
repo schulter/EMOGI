@@ -246,14 +246,13 @@ def parse_args():
 if __name__ == "__main__":
     print ("Loading Data...")
     args = parse_args()
-    data = load_hdf_data('../data/cancer/hotnet_gcn_input_unbalanced.h5')
+    data = load_hdf_data('../data/cancer/hotnet_iref_gcn_input_unbalanced.h5')
     adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names = data
     #data = load_cora()
     #adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = data
     #node_names = np.array([[str(i), str(i)] for i in np.arange(features.shape[0])])
     num_nodes = adj.shape[0]
     num_feat = features.shape[1]
-
     features = gcn.utils.preprocess_features(lil_matrix(features))
 
     # create placeholders and other stuff for TF
@@ -299,9 +298,9 @@ if __name__ == "__main__":
         writer = tf.summary.FileWriter(save_path, sess.graph)
 
         def evaluate(features, support, labels, mask, placeholders):
-            feed_dict_val = gcn.utils.construct_feed_dict(features, support, labels, mask, placeholders)
+            feed_dict = gcn.utils.construct_feed_dict(features, support, labels, mask, placeholders)
             loss, acc, aupr, auroc = sess.run([model.loss, model.accuracy, model.aupr_score, model.auroc_score],
-                                       feed_dict=feed_dict_val)
+                                       feed_dict=feed_dict)
             return loss, acc, aupr, auroc
 
         def predict(features, support, labels, mask, placeholders):
@@ -310,25 +309,23 @@ if __name__ == "__main__":
             return pred
 
         sess.run(tf.group(tf.global_variables_initializer(), tf.local_variables_initializer()))
-        cost_val = []
         for epoch in range(args.epochs):
-            t = time.time()
             feed_dict = gcn.utils.construct_feed_dict(features, support, y_train, train_mask, placeholders)
             feed_dict.update({placeholders['dropout']: args.dropout})
             # Training step
             outs = sess.run([model.opt_op, model.loss, model.accuracy, merged],
                             feed_dict=feed_dict)
             writer.add_summary(outs[3], epoch)
+            writer.flush()
 
             # Validation
             cost, acc, aupr, auroc = evaluate(features, support, y_test, test_mask, placeholders)
-            cost_val.append(cost)
 
             # Print results
             print("Epoch:", '%04d' % (epoch + 1), "train_loss=", "{:.5f}".format(outs[1]),
-                  "train_acc=", "{:.5f}".format(outs[2]), "val_loss=", "{:.5f}".format(cost),
-                  "val_acc=", "{:.5f}".format(acc), "test_AUPR=", "{:.5f}".format(aupr),
-                  "test_AUROC=", "{:.5f}".format(auroc))
+                    "train_acc=", "{:.5f}".format(outs[2]), "val_loss=", "{:.5f}".format(cost),
+                    "val_acc=", "{:.5f}".format(acc), "test_AUPR=", "{:.5f}".format(aupr),
+                    "test_AUROC=", "{:.5f}".format(auroc))
         print("Optimization Finished!")
 
         # Testing
