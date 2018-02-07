@@ -54,7 +54,7 @@ def run_cv(model, sess, num_runs, params, placeholders, support):
     auprs = []
     num_preds = []
     for cv_run in range(num_runs):
-        sess.run(tf.global_variables_initializer())
+        sess.run(tf.group(tf.global_variables_initializer(), tf.local_variables_initializer()))
         cost_val = []
         for epoch in range(params['epochs']):
             t = time.time()
@@ -97,26 +97,25 @@ def run_model(session, params, adj, features, y_train, y_test, train_mask, test_
                   num_hidden1=params['hidden1'],
                   num_hidden2=params['hidden2'],
                   pos_loss_multiplier=params['loss_mul'],
-                  dropout=params['dropout'],
-                  logging=True)
+                  logging=False)
     return run_cv(model, sess, 5, params, placeholders, support)
 
 if __name__ == "__main__":
     print ("Loading Data...")
     cv_runs = 5
-    data = load_hdf_data('../data/simulation/simulated_input_legionella_unbalanced.h5')
+    data = load_hdf_data('../data/cancer/hotnet_gcn_input_unbalanced.h5')
     adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names = data
     num_nodes = adj.shape[0]
     num_feat = features.shape[1]
     features = gcn.utils.preprocess_features(lil_matrix(features))
 
-    params = {'support':[1, 2, 3],
-              'dropout':[0.1, .25, .5],
+    params = {'support':[1, 2],
+              'dropout':[.25],
               'hidden1':[5, 10, 20, 50],
               'hidden2':[5, 10, 20, 50],
               'loss_mul':[1, 10, 50, 100, 200],
               'learningrate':[0.1, .01, .001, .0005],
-              'epochs':[100],
+              'epochs':[500],
               'weight_decay':[5e-4]
               }
     """
