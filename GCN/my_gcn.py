@@ -80,7 +80,10 @@ class MYGCN (Model):
                                             sparse_inputs=True,
                                             name='gclayer_1',
                                             logging=self.logging)
-        )
+
+        ) 
+
+        """
         self.layers.append(MyGraphConvolution(input_dim=self.num_hidden1,
                                             output_dim=self.num_hidden2,
                                             placeholders=self.placeholders,
@@ -90,6 +93,7 @@ class MYGCN (Model):
                                             name='gclayer_2',
                                             logging=self.logging)
         )
+        """
         self.layers.append(MyGraphConvolution(input_dim=self.num_hidden2,
                                             output_dim=self.output_dim,
                                             placeholders=self.placeholders,
@@ -184,14 +188,11 @@ class MYGCN (Model):
         if not sess:
             raise AttributeError("TensorFlow session not provided.")
         saver = tf.train.Saver(self.vars)
-        print (self.vars)
         save_path = saver.save(sess, path)
         print("Model saved in file: %s" % save_path)
 
     def load(self, path, sess=None):
         if not sess:
             raise AttributeError("TensorFlow session not provided.")
-        print (self.vars)
         saver = tf.train.Saver(self.vars)
         saver.restore(sess, path)
-        print("Model restored from file: %s" % path)

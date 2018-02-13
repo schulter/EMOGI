@@ -253,9 +253,13 @@ if __name__ == "__main__":
     #node_names = np.array([[str(i), str(i)] for i in np.arange(features.shape[0])])
     num_nodes = adj.shape[0]
     num_feat = features.shape[1]
-    features = gcn.utils.preprocess_features(lil_matrix(features))
+    if num_feat > 1:
+        features = gcn.utils.preprocess_features(lil_matrix(features))
+    else:
+        print ("Not row-normalizing features because feature dim is {}".format(num_feat))
+        features = gcn.utils.sparse_to_tuple(lil_matrix(features))
 
-    # create placeholders and other stuff for TF
+    # preprocess adjacency matrix and account for larger support
     poly_support = args.support
     if poly_support > 1:
         support = gcn.utils.chebyshev_polynomials(adj, poly_support)
@@ -263,13 +267,16 @@ if __name__ == "__main__":
     else:
         support = [gcn.utils.preprocess_adj(adj)]
         num_supports = 1
+    
+    # create placeholders
     placeholders = {
         'support': [tf.sparse_placeholder(tf.float32) for _ in range(num_supports)],
-        'features': tf.sparse_placeholder(tf.float32, shape=tf.constant(features[2], dtype=tf.int64)),
+        'features': tf.sparse_placeholder(tf.float32,
+                                          shape=features[2]),
         'labels': tf.placeholder(tf.float32, shape=(None, y_train.shape[1])),
         'labels_mask': tf.placeholder(tf.int32),
         'dropout': tf.placeholder_with_default(0., shape=()),
-        'num_features_nonzero': tf.placeholder(tf.int32)  # helper variable for sparse dropout
+        'num_features_nonzero': tf.placeholder(tf.int32)
     }
 
     # create session, train and save afterwards
@@ -297,6 +304,7 @@ if __name__ == "__main__":
         config = projector.ProjectorConfig()
         writer = tf.summary.FileWriter(save_path, sess.graph)
 
+        # helper functions for evaluation at training time
         def evaluate(features, support, labels, mask, placeholders):
             feed_dict = gcn.utils.construct_feed_dict(features, support, labels, mask, placeholders)
             loss, acc, aupr, auroc = sess.run([model.loss, model.accuracy, model.aupr_score, model.auroc_score],
