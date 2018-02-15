@@ -82,8 +82,6 @@ class MYGCN (Model):
                                             logging=self.logging)
 
         ) 
-
-        """
         self.layers.append(MyGraphConvolution(input_dim=self.num_hidden1,
                                             output_dim=self.num_hidden2,
                                             placeholders=self.placeholders,
@@ -93,7 +91,6 @@ class MYGCN (Model):
                                             name='gclayer_2',
                                             logging=self.logging)
         )
-        """
         self.layers.append(MyGraphConvolution(input_dim=self.num_hidden2,
                                             output_dim=self.output_dim,
                                             placeholders=self.placeholders,
