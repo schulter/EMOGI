@@ -162,13 +162,10 @@ def plot_tsne(sess, model, feed_dict, colors, dir_name):
         print ("Plotted TSNE for layer {}".format(layer_num))
         layer_num += 1
 
-def plot_roc_pr_curves(predictions, y_train, y_test, model_dir):
+def plot_roc_pr_curves(y_score, y_true, model_dir):
     # define y_true and y_score
-    y = np.logical_or(y_train, y_test)
-    print (predictions.shape)
-    y_score = predictions[:, 0]
-    fpr, tpr, thresholds = roc_curve(y[:, 0], y_score)
-    roc_auc = roc_auc_score(y[:, 0], y_score)
+    fpr, tpr, thresholds = roc_curve(y_true, y_score)
+    roc_auc = roc_auc_score(y_true, y_score)
 
     # plot ROC curve
     fig = plt.figure(figsize=(14, 8))
@@ -181,8 +178,8 @@ def plot_roc_pr_curves(predictions, y_train, y_test, model_dir):
     fig.savefig(os.path.join(model_dir,'roc_curve.png'))
 
     # plot PR-Curve
-    pr, rec, thresholds = precision_recall_curve(y[:, 0], y_score)
-    aupr = average_precision_score(y[:,0], y_score)
+    pr, rec, thresholds = precision_recall_curve(y_true, y_score)
+    aupr = average_precision_score(y_true, y_score)
     fig = plt.figure(figsize=(14, 8))
     plt.plot(pr, rec, lw=3, label='AUPR = {0:.2f}'.format(aupr))
     plt.xlabel('Precision')
@@ -191,10 +188,11 @@ def plot_roc_pr_curves(predictions, y_train, y_test, model_dir):
     plt.legend()
     fig.savefig(os.path.join(model_dir, 'prec_recall.png'))
 
-def write_hyper_params(args, file_name):
+def write_hyper_params(args, input_file, file_name):
     with open(file_name, 'w') as f:
         for arg in vars(args):
             f.write('{}\t{}\n'.format(arg, getattr(args, arg)))
+        f.write('{}\n'.format(input_file))
     print ("Hyper-Parameters saved to {}".format(file_name))
 
 def parse_args():
@@ -214,16 +212,11 @@ def parse_args():
                         default=1,
                         type=int
                         )
-    parser.add_argument('-h1', '--hidden_units_1', help='Number of feature maps for layer 1',
-                        dest='hidden1',
-                        default=20,
-                        type=int
-                        )
-    parser.add_argument('-h2', '--hidden_units_2', help='Number of feature maps for layer 2',
-                        dest='hidden2',
-                        default=40,
-                        type=int
-                        )
+    parser.add_argument('-hd', '--hidden_dims',
+                        help='Hidden Dimensions (number of filters per layer. Also determines the number of hidden layers.',
+                        nargs='+',
+                        dest='hidden_dims',
+                        required=True)
     parser.add_argument('-lm', '--loss_mul',
                         help='Number of times, false negatives are weighted higher than false positives',
                         dest='loss_mul',
@@ -246,7 +239,8 @@ def parse_args():
 if __name__ == "__main__":
     print ("Loading Data...")
     args = parse_args()
-    data = load_hdf_data('../data/cancer/hotnet_iref_gcn_input_unbalanced.h5')
+    input_data_path = '../data/cancer/hotnet_iref_vec_input_unbalanced.h5'
+    data = load_hdf_data(input_data_path)
     adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names = data
     #data = load_cora()
     #adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = data
@@ -278,6 +272,7 @@ if __name__ == "__main__":
         'dropout': tf.placeholder_with_default(0., shape=()),
         'num_features_nonzero': tf.placeholder(tf.int32)
     }
+    hidden_dims = [int(x) for x in args.hidden_dims]
 
     # create session, train and save afterwards
     with tf.Session() as sess:
@@ -285,8 +280,8 @@ if __name__ == "__main__":
                       input_dim=features[2][1],
                       learning_rate=args.lr,
                       weight_decay=args.decay,
-                      num_hidden1=args.hidden1,
-                      num_hidden2=args.hidden2,
+                      num_hidden_layers=len(args.hidden_dims),
+                      hidden_dims=hidden_dims,
                       pos_loss_multiplier=args.loss_mul,
                       logging=True)
 
@@ -377,8 +372,8 @@ if __name__ == "__main__":
         # construct color DataFrame for TSNE plots
         colors = get_color_dataframe(node_names, predictions, y_train, y_test)
 
-        # save hyper Parameters
-        write_hyper_params(args, os.path.join(save_path, 'hyper_params.txt'))
+        # save hyper Parameters and plot
+        write_hyper_params(args, input_data_path, os.path.join(save_path, 'hyper_params.txt'))
         plot_weights(sess, model, save_path)
         plot_tsne(sess, model, test_dict, colors, save_path)
-        plot_roc_pr_curves(predictions, y_train, y_test, save_path)
+        plot_roc_pr_curves(predictions[test_mask == 1], y_test[test_mask == 1], save_path)

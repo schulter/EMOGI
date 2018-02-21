@@ -50,8 +50,14 @@ class MyGraphConvolution(GraphConvolution):
 
 
 class MYGCN (Model):
-    def __init__(self, placeholders, input_dim, learning_rate=0.1, num_hidden1=20, num_hidden2=40, pos_loss_multiplier=1, weight_decay=5e-4, **kwargs):
+    def __init__(self, placeholders, input_dim, learning_rate=0.1,
+                 num_hidden_layers=2, hidden_dims=[20, 40], pos_loss_multiplier=1,
+                 weight_decay=5e-4, **kwargs):
         super(MYGCN, self).__init__(**kwargs)
+
+        # some checks first
+        assert (num_hidden_layers == len(hidden_dims))
+        #assert (hidden_units[-1] == output_dim)
 
         # data placeholders
         self.inputs = placeholders['features']
@@ -62,43 +68,43 @@ class MYGCN (Model):
         self.optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
 
         # model params
-        self.num_hidden1 = num_hidden1
-        self.num_hidden2 = num_hidden2
         self.weight_decay = weight_decay
         self.pos_loss_multiplier = pos_loss_multiplier
+        self.num_hidden_layers = num_hidden_layers
+        self.hidden_dims = hidden_dims
+
+        # initialize metrics here
         self.aupr_score = 0
         self.auroc_score = 0
+
         # training, prediction and loss functions
         self.build()
 
     def _build(self):
-        self.layers.append(MyGraphConvolution(input_dim=self.input_dim,
-                                            output_dim=self.num_hidden1,
-                                            placeholders=self.placeholders,
-                                            act=tf.nn.relu,
-                                            dropout=True,
-                                            sparse_inputs=True,
-                                            name='gclayer_1',
-                                            logging=self.logging)
-
-        ) 
-        self.layers.append(MyGraphConvolution(input_dim=self.num_hidden1,
-                                            output_dim=self.num_hidden2,
-                                            placeholders=self.placeholders,
-                                            act=tf.nn.relu,
-                                            dropout=True,
-                                            sparse_inputs=False,
-                                            name='gclayer_2',
-                                            logging=self.logging)
-        )
-        self.layers.append(MyGraphConvolution(input_dim=self.num_hidden2,
-                                            output_dim=self.output_dim,
-                                            placeholders=self.placeholders,
-                                            act=lambda x:x,
-                                            dropout=True,
-                                            sparse_inputs=False,
-                                            name='gclayer_3',
-                                            logging=self.logging)
+        # add intermediate layers
+        inp_dim = self.input_dim
+        for l in range(self.num_hidden_layers):
+            sparsity = l == 0 # first layer is sparse, the others not
+            self.layers.append(MyGraphConvolution(input_dim=inp_dim,
+                                                  output_dim=self.hidden_dims[l],
+                                                  placeholders=self.placeholders,
+                                                  act=tf.nn.relu,
+                                                  dropout=True,
+                                                  sparse_inputs=l == 0,
+                                                  name='gclayer_{}'.format(l+1),
+                                                  logging=self.logging)
+            )
+            inp_dim = self.hidden_dims[l]
+        # add last layer
+        layer_n = self.num_hidden_layers + 1
+        self.layers.append(MyGraphConvolution(input_dim=self.hidden_dims[-1],
+                                              output_dim=self.output_dim,
+                                              placeholders=self.placeholders,
+                                              act=lambda x: x,
+                                              dropout=True,
+                                              sparse_inputs=False,
+                                              name='gclayer_{}'.format(layer_n),
+                                              logging=self.logging)
         )
 
     def _loss(self):
