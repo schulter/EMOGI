@@ -94,8 +94,8 @@ def run_model(session, params, adj, features, y_train, y_test, train_mask, test_
                   input_dim=features[2][1],
                   learning_rate=params['learningrate'],
                   weight_decay=params['weight_decay'],
-                  num_hidden1=params['hidden1'],
-                  num_hidden2=params['hidden2'],
+                  num_hidden_layers=len(params['hidden_dims']),
+                  hidden_dims=params['hidden_dims'],
                   pos_loss_multiplier=params['loss_mul'],
                   logging=False)
     return run_cv(model, sess, 5, params, placeholders, support)
@@ -103,32 +103,25 @@ def run_model(session, params, adj, features, y_train, y_test, train_mask, test_
 if __name__ == "__main__":
     print ("Loading Data...")
     cv_runs = 5
-    data = load_hdf_data('../data/cancer/hotnet_gcn_input_unbalanced.h5')
+    data = load_hdf_data('../data/cancer/hotnet_iref_vec_input_unbalanced.h5')
     adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names = data
     num_nodes = adj.shape[0]
     num_feat = features.shape[1]
-    features = gcn.utils.preprocess_features(lil_matrix(features))
+    if num_feat > 1:
+        features = gcn.utils.preprocess_features(lil_matrix(features))
+    else:
+        print ("Not row-normalizing features because feature dim is {}".format(num_feat))
+        features = gcn.utils.sparse_to_tuple(lil_matrix(features))
 
     params = {'support':[1, 2],
-              'dropout':[.25],
-              'hidden1':[5, 10, 20, 50],
-              'hidden2':[5, 10, 20, 50],
-              'loss_mul':[1, 10, 50, 100, 200],
+              'dropout':[.1],
+              'hidden_dims': [[20, 40], [20, 40, 80], [80, 40, 20, 40]],
+              'loss_mul': [1, 50, 200],
               'learningrate':[0.1, .01, .001, .0005],
               'epochs':[500],
-              'weight_decay':[5e-4]
+              'weight_decay':[5e-4, 5e-3, 5e-2]
               }
-    """
-    params = {'support':[1, 2, 3],
-              'dropout':[.6],
-              'hidden1':[100],
-              'hidden2':[100],
-              'loss_mul':[50],
-              'learningrate':[0.1, .01, .001],
-              'epochs':[100],
-              'weight_decay':[5e-4]
-              }
-    """
+
     num_of_settings = len(list(ParameterGrid(params)))
     print ("Grid Search: Trying {} different parameter settings...".format(num_of_settings))
     param_num = 1
