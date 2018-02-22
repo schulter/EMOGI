@@ -10,7 +10,8 @@ from my_gcn import MYGCN
 from scipy.sparse import csr_matrix, lil_matrix
 from gcn.models import GCN
 import time
-from sklearn.model_selection import ParameterGrid
+
+from sklearn.model_selection import ParameterGrid, train_test_split
 from sklearn.metrics import average_precision_score
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
@@ -48,22 +49,93 @@ def predict(model, session, features, support, labels, mask, placeholders):
     pred = sess.run(model.predict(), feed_dict=feed_dict_pred)
     return pred
 
-def run_cv(model, sess, num_runs, params, placeholders, support):
+def fits_on_gpu(adj, features, hidden_dims, support):
+    """Determines if training should be done on the GPU or CPU.
+    """
+    total_size = 0
+    cur_dim = features[2][1]
+    n = features[2][0]
+    sp_adj = gcn.utils.preprocess_adj(adj)
+    adj_size = np.prod(sp_adj[0].shape) + np.prod(sp_adj[1].shape)
+    print (adj_size, n)
+
+    for layer in range(len(hidden_dims)):
+        H_s = n * cur_dim
+        W_s = cur_dim * hidden_dims[layer]
+        total_size += (adj_size + H_s + W_s)*support
+        cur_dim = hidden_dims[layer]
+    total_size *= 4 # assume 32 bits (4 bytes) per number
+
+    return total_size < 11*1024*1024*1024 # 12 GB memory (only take 11)
+    
+
+def cv_split(y, mask, val_size):
+    """Split mask and targets into train and validation sets (stratified).
+
+    This method contructs mask and targets for training and validation
+    from the complete mask and targets. The proportion of nodes used
+    for validation is determined by `val_size`.
+    The split will be stratified and the returned arrays have the
+    same dimensions as the input arrays.
+
+    Parameters:
+    ----------
+    y:                  The targets for all nodes.
+    mask:               The mask for the known nodes
+    val_size:           The proportion (or absolute size) of nodes
+                        used for validation
+    
+    Returns:
+    Four arrays of length of the input arrays, namely train targets,
+    train mask, validation targets and validation mask.
+    """
+    assert (y.shape[0] == mask.shape[0])
+    mask_idx = np.where(mask == 1)[0]
+    train_idx, val_idx = train_test_split(mask_idx, test_size=val_size,
+                                          stratify=y[mask==1, 0])
+    # build the train/validation masks
+    m_t = np.zeros_like(mask)
+    m_t[train_idx] = 1
+    m_v = np.zeros_like(mask)
+    m_v[val_idx] = 1
+
+    # build the train/validation targets
+    y_t = np.zeros_like(y)
+    y_t[train_idx] = y[train_idx] # all train nodes get train targets
+    y_v = np.zeros_like(y)
+    y_v[val_idx] = y[val_idx] # same for validation
+
+    return y_t, m_t, y_v, m_v
+
+def run_cv(model, sess, features, num_runs, params, placeholders, support, y, mask):
+    """Run one parameter setting with CV and evaluate on validation data.
+    """
+    # where the results go
     accs = []
     losses = []
     auprs = []
     num_preds = []
+
     for cv_run in range(num_runs):
-        sess.run(tf.group(tf.global_variables_initializer(), tf.local_variables_initializer()))
+        # select some training genes randomly
+        size = 1 / float(num_runs) # size for validation (1/CV runs)
+        y_train, train_mask, y_val, val_mask = cv_split(y, mask, size)
+
+        sess.run(tf.group(tf.global_variables_initializer(),
+                 tf.local_variables_initializer()))
         cost_val = []
         for epoch in range(params['epochs']):
             t = time.time()
-            feed_dict = gcn.utils.construct_feed_dict(features, support, y_train, train_mask, placeholders)
+            feed_dict = gcn.utils.construct_feed_dict(features, support, y_train,
+                                                      train_mask, placeholders)
             feed_dict.update({placeholders['dropout']: params['dropout']})
-            outs = sess.run([model.opt_op, model.loss, model.accuracy], feed_dict=feed_dict)
+            outs = sess.run([model.opt_op, model.loss, model.accuracy],
+                            feed_dict=feed_dict)
         # Testing
-        test_cost, test_acc = evaluate(model, sess, features, support, y_test, test_mask, placeholders)
-        predictions = predict(model, sess, features, support, y_test, test_mask, placeholders)
+        test_cost, test_acc = evaluate(model, sess, features, support,
+                                       y_val, val_mask, placeholders)
+        predictions = predict(model, sess, features, support,
+                              y_val, val_mask, placeholders)
         num_pos_pred = (predictions[:, 0] > .5).sum()
         num_preds.append(num_pos_pred)
         accs.append(test_acc)
@@ -98,7 +170,8 @@ def run_model(session, params, adj, features, y_train, y_test, train_mask, test_
                   hidden_dims=params['hidden_dims'],
                   pos_loss_multiplier=params['loss_mul'],
                   logging=False)
-    return run_cv(model, sess, 5, params, placeholders, support)
+    return run_cv(model, sess, features, 5, params, placeholders,
+                  support, y_train, train_mask)
 
 if __name__ == "__main__":
     print ("Loading Data...")
@@ -113,13 +186,14 @@ if __name__ == "__main__":
         print ("Not row-normalizing features because feature dim is {}".format(num_feat))
         features = gcn.utils.sparse_to_tuple(lil_matrix(features))
 
-    params = {'support':[1, 2],
+    params = {'support':[1],
               'dropout':[.1],
-              'hidden_dims': [[20, 40], [20, 40, 80], [80, 40, 20, 40]],
+              'hidden_dims': [[20, 40], [20, 40, 80], [80, 40, 20], [5],
+                             [100], [100, 200], [5, 40, 5], [10, 100, 500]],
               'loss_mul': [1, 50, 200],
-              'learningrate':[0.1, .01, .001, .0005],
+              'learningrate':[0.1, .01, .0005],
               'epochs':[500],
-              'weight_decay':[5e-4, 5e-3, 5e-2]
+              'weight_decay':[5e-4, 5e-2]
               }
 
     num_of_settings = len(list(ParameterGrid(params)))
@@ -137,5 +211,6 @@ if __name__ == "__main__":
         param_num += 1
         tf.reset_default_graph()
     # write results from gridsearch to file
-    with open('../data/gridsearch/gridsearch_results_unbalanced.pkl', 'wb') as f:
+    out_name = '../data/gridsearch/gridsearchcv_results_cancer_vec_unbalanced.pkl'
+    with open(out_name, 'wb') as f:
         pickle.dump(performances, f)
