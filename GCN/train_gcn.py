@@ -130,7 +130,7 @@ def plot_weights(sess, model, dir_name):
                 plt.setp(ax.get_xticklabels(), visible=False)
         fig.savefig(os.path.join(dir_name, 'weights_{}.png'.format(layer_num)), format='png', dpi=200)
 
-def plot_tsne(sess, model, feed_dict, colors, dir_name):
+def plot_pca(sess, model, feed_dict, colors, dir_name):
     print ("Plotting TSNE for activaions...")
     # assign color to the labels
     node_names
@@ -146,9 +146,9 @@ def plot_tsne(sess, model, feed_dict, colors, dir_name):
             else: continue
         fig = plt.figure(figsize=(14, 8))
         plt.scatter(embedding[:, 0], embedding[:, 1], c=colors.color, alpha=0.7)
-        plt.xlabel('TSNE Component 1')
-        plt.ylabel('TSNE Component 2')
-        plt.title('TSNE Plot: Hidden Layer {}'.format(layer_num))
+        plt.xlabel('PCA Component 1')
+        plt.ylabel('PCA Component 2')
+        plt.title('PCA Plot: Hidden Layer {}'.format(layer_num))
 
         # legend
         pred_nodes = mpatches.Patch(color='blue', label='Predicted Node')
@@ -158,7 +158,7 @@ def plot_tsne(sess, model, feed_dict, colors, dir_name):
         plt.legend(handles=[pred_nodes, train_nodes, test_nodes, not_involved])
 
         # save
-        fig.savefig(os.path.join(dir_name, 'tsne_{}.png'.format(layer_num)), dpi=300)
+        fig.savefig(os.path.join(dir_name, 'pca_{}.png'.format(layer_num)), dpi=300)
         print ("Plotted TSNE for layer {}".format(layer_num))
         layer_num += 1
 
@@ -236,6 +236,27 @@ def parse_args():
     args = parser.parse_args()
     return args
 
+def fits_on_gpu(adj, features, hidden_dims, support):
+    """Determines if training should be done on the GPU or CPU.
+    """
+    total_size = 0
+    cur_dim = features[2][1]
+    n = features[2][0]
+    sp_adj = gcn.utils.preprocess_adj(adj)
+    adj_size = np.prod(sp_adj[0].shape) + np.prod(sp_adj[1].shape)
+    print (adj_size, n)
+
+    for layer in range(len(hidden_dims)):
+        H_s = n * cur_dim
+        W_s = cur_dim * hidden_dims[layer]
+        total_size += (adj_size + H_s + W_s)*support
+        cur_dim = hidden_dims[layer]
+        print (H_s, W_s, total_size, cur_dim)
+    total_size *= 4 # assume 32 bits (4 bytes) per number
+
+    print (total_size, total_size < 11*1024*1024*1024)
+    return total_size < 11*1024*1024*1024 # 12 GB memory (only take 11)
+
 if __name__ == "__main__":
     print ("Loading Data...")
     args = parse_args()
@@ -275,15 +296,18 @@ if __name__ == "__main__":
     hidden_dims = [int(x) for x in args.hidden_dims]
 
     # create session, train and save afterwards
+    device = 1 if fits_on_gpu(adj, features, hidden_dims, poly_support) else 0
+    #print (device)
+    #config = tf.ConfigProto(device_count={'GPU': device})
     with tf.Session() as sess:
         model = MYGCN(placeholders=placeholders,
-                      input_dim=features[2][1],
-                      learning_rate=args.lr,
-                      weight_decay=args.decay,
-                      num_hidden_layers=len(args.hidden_dims),
-                      hidden_dims=hidden_dims,
-                      pos_loss_multiplier=args.loss_mul,
-                      logging=True)
+                    input_dim=features[2][1],
+                    learning_rate=args.lr,
+                    weight_decay=args.decay,
+                    num_hidden_layers=len(args.hidden_dims),
+                    hidden_dims=hidden_dims,
+                    pos_loss_multiplier=args.loss_mul,
+                    logging=True)
 
         # create model directory for saving
         root_dir = '../data/GCN/training'
@@ -303,7 +327,7 @@ if __name__ == "__main__":
         def evaluate(features, support, labels, mask, placeholders):
             feed_dict = gcn.utils.construct_feed_dict(features, support, labels, mask, placeholders)
             loss, acc, aupr, auroc = sess.run([model.loss, model.accuracy, model.aupr_score, model.auroc_score],
-                                       feed_dict=feed_dict)
+                                    feed_dict=feed_dict)
             return loss, acc, aupr, auroc
 
         def predict(features, support, labels, mask, placeholders):
@@ -366,14 +390,14 @@ if __name__ == "__main__":
             f.write('ID\tName\tProb_pos\n')
             for pred_idx in range(predictions.shape[0]):
                 f.write('{}\t{}\t{}\n'.format(node_names[pred_idx, 0],
-                                                  node_names[pred_idx, 1],
-                                                  predictions[pred_idx, 0])
+                                                node_names[pred_idx, 1],
+                                                predictions[pred_idx, 0])
                         )
-        # construct color DataFrame for TSNE plots
+        # construct color DataFrame for PCA plots
         colors = get_color_dataframe(node_names, predictions, y_train, y_test)
 
         # save hyper Parameters and plot
         write_hyper_params(args, input_data_path, os.path.join(save_path, 'hyper_params.txt'))
         plot_weights(sess, model, save_path)
-        plot_tsne(sess, model, test_dict, colors, save_path)
+        plot_pca(sess, model, test_dict, colors, save_path)
         plot_roc_pr_curves(predictions[test_mask == 1], y_test[test_mask == 1], save_path)
