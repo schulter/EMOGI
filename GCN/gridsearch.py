@@ -123,23 +123,21 @@ def run_cv(model, sess, features, num_runs, params, placeholders, support, y, ma
 
         sess.run(tf.group(tf.global_variables_initializer(),
                  tf.local_variables_initializer()))
-        cost_val = []
         for epoch in range(params['epochs']):
-            t = time.time()
             feed_dict = gcn.utils.construct_feed_dict(features, support, y_train,
                                                       train_mask, placeholders)
             feed_dict.update({placeholders['dropout']: params['dropout']})
-            outs = sess.run([model.opt_op, model.loss, model.accuracy],
+            outs = sess.run(model.opt_op,
                             feed_dict=feed_dict)
         # Testing
-        test_cost, test_acc = evaluate(model, sess, features, support,
+        val_loss, val_acc = evaluate(model, sess, features, support,
                                        y_val, val_mask, placeholders)
         predictions = predict(model, sess, features, support,
                               y_val, val_mask, placeholders)
         num_pos_pred = (predictions[:, 0] > .5).sum()
         num_preds.append(num_pos_pred)
-        accs.append(test_acc)
-        losses.append(test_cost)
+        accs.append(val_acc)
+        losses.append(val_loss)
         aupr = masked_aupr_score(y_test, predictions, test_mask)
         auprs.append(aupr)
     print ("Test AUPR: {}".format(np.mean(auprs)))
