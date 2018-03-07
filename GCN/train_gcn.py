@@ -62,9 +62,9 @@ def load_cora():
     return adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask
 
 
-def load_hdf_data(path, feature_name='features'):
+def load_hdf_data(path, network_name='network', feature_name='features'):
     with h5py.File(path, 'r') as f:
-        network = f['network'][:]
+        network = f[network_name][:]
         features = f[feature_name][:]
         node_names = f['gene_names'][:]
         y_train = f['y_train'][:]
@@ -261,7 +261,7 @@ if __name__ == "__main__":
     print ("Loading Data...")
     args = parse_args()
     input_data_path = '../data/cancer/hotnet_iref_vec_input_unbalanced.h5'
-    data = load_hdf_data(input_data_path)
+    data = load_hdf_data(input_data_path, network_name='network_largely_perturbed')
     adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names = data
     #data = load_cora()
     #adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = data
