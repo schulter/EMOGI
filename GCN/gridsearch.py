@@ -120,14 +120,14 @@ def run_cv(model, sess, features, num_runs, params, placeholders, support, y, ma
         # select some training genes randomly
         size = 1 / float(num_runs) # size for validation (1/CV runs)
         y_train, train_mask, y_val, val_mask = cv_split(y, mask, size)
-
+        merged = tf.summary.merge_all()
         sess.run(tf.group(tf.global_variables_initializer(),
                  tf.local_variables_initializer()))
         for epoch in range(params['epochs']):
             feed_dict = gcn.utils.construct_feed_dict(features, support, y_train,
                                                       train_mask, placeholders)
             feed_dict.update({placeholders['dropout']: params['dropout']})
-            outs = sess.run(model.opt_op,
+            outs = sess.run([model.opt_op, merged],
                             feed_dict=feed_dict)
         # Testing
         val_loss, val_acc = evaluate(model, sess, features, support,
@@ -167,7 +167,7 @@ def run_model(session, params, adj, features, y_train, y_test, train_mask, test_
                   num_hidden_layers=len(params['hidden_dims']),
                   hidden_dims=params['hidden_dims'],
                   pos_loss_multiplier=params['loss_mul'],
-                  logging=False)
+                  logging=True)
     return run_cv(model, sess, features, 5, params, placeholders,
                   support, y_train, train_mask)
 
@@ -184,16 +184,18 @@ if __name__ == "__main__":
         print ("Not row-normalizing features because feature dim is {}".format(num_feat))
         features = gcn.utils.sparse_to_tuple(lil_matrix(features))
 
-    params = {'support':[1],
+    params = {'support':[1, 2],
               'dropout':[.1],
-              'hidden_dims': [[20, 40], [20, 40, 80], [80, 40, 20], [5],
-                             [100], [100, 200], [5, 40, 5], [10, 100, 500]],
-              'loss_mul': [1, 50, 200],
+              'hidden_dims': [[20, 40], [20, 40, 80], [80, 40, 20], [5], [20, 40, 40, 20],
+                             [100], [100, 200], [5, 40, 5]],
+              'loss_mul': [1, 50, 175, 250],
               'learningrate':[0.1, .01, .0005],
-              'epochs':[500],
+              'epochs':[700],
               'weight_decay':[5e-4, 5e-2]
               }
 
+    #params = {'support':[2], 'dropout':[.1], 'hidden_dims':[[40, 80]], 'loss_mul':[175], 'learningrate':[.01], 'epochs':[500], 'weight_decay':[5e-4]}
+ 
     num_of_settings = len(list(ParameterGrid(params)))
     print ("Grid Search: Trying {} different parameter settings...".format(num_of_settings))
     param_num = 1
