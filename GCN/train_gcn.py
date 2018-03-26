@@ -181,7 +181,10 @@ def plot_roc_pr_curves(y_score, y_true, model_dir):
     pr, rec, thresholds = precision_recall_curve(y_true, y_score)
     aupr = average_precision_score(y_true, y_score)
     fig = plt.figure(figsize=(14, 8))
-    plt.plot(pr, rec, lw=3, label='AUPR = {0:.2f}'.format(aupr))
+    plt.plot(rec, pr, lw=3, label='GCN (AUPR = {0:.2f})'.format(aupr))
+    random_y = y_true.sum() / (y_true.sum() + y_true.shape[0] - y_true.sum())
+    plt.plot([0, 1], [random_y, random_y], color='gray', lw=3, linestyle='--',
+             label='Random')
     plt.xlabel('Precision')
     plt.ylabel('Recall')
     plt.title('Precision-Recall Curve on Train and Test')
@@ -258,11 +261,11 @@ def fits_on_gpu(adj, features, hidden_dims, support):
     return total_size < 11*1024*1024*1024 # 12 GB memory (only take 11)
 
 if __name__ == "__main__":
-    print ("Loading Data...")
     args = parse_args()
-    input_data_path = '../data/cancer/hotnet_iref_vec_input_unbalanced.h5'
-    data = load_hdf_data(input_data_path, network_name='network_largely_perturbed')
+    input_data_path = '../data/preprocessing/legionella_negnopam_unbalanced.h5'
+    data = load_hdf_data(input_data_path, feature_name='features')
     adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names = data
+    print ("Read data from: {}".format(input_data_path))
     #data = load_cora()
     #adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = data
     #node_names = np.array([[str(i), str(i)] for i in np.arange(features.shape[0])])
@@ -296,7 +299,7 @@ if __name__ == "__main__":
     hidden_dims = [int(x) for x in args.hidden_dims]
 
     # create session, train and save afterwards
-    device = 1 if fits_on_gpu(adj, features, hidden_dims, poly_support) else 0
+    #device = 1 if fits_on_gpu(adj, features, hidden_dims, poly_support) else 0
     #print (device)
     #config = tf.ConfigProto(device_count={'GPU': device})
     with tf.Session() as sess:
@@ -321,13 +324,15 @@ if __name__ == "__main__":
         # initialize writers for TF logs
         merged = tf.summary.merge_all()
         config = projector.ProjectorConfig()
-        writer = tf.summary.FileWriter(save_path, sess.graph)
+        train_writer = tf.summary.FileWriter(os.path.join(save_path, 'train'))
+        test_writer = tf.summary.FileWriter(os.path.join(save_path, 'test'))
 
         # helper functions for evaluation at training time
         def evaluate(features, support, labels, mask, placeholders):
-            feed_dict = gcn.utils.construct_feed_dict(features, support, labels, mask, placeholders)
-            loss, acc, aupr, auroc = sess.run([model.loss, model.accuracy, model.aupr_score, model.auroc_score],
-                                    feed_dict=feed_dict)
+            d = gcn.utils.construct_feed_dict(features, support, labels, mask, placeholders)
+            loss, acc, aupr, auroc = sess.run([model.loss, model.accuracy,
+                                               model.aupr_score, model.auroc_score],
+                                              feed_dict=d)
             return loss, acc, aupr, auroc
 
         def predict(features, support, labels, mask, placeholders):
@@ -337,22 +342,36 @@ if __name__ == "__main__":
 
         sess.run(tf.group(tf.global_variables_initializer(), tf.local_variables_initializer()))
         for epoch in range(args.epochs):
-            feed_dict = gcn.utils.construct_feed_dict(features, support, y_train, train_mask, placeholders)
+            feed_dict = gcn.utils.construct_feed_dict(features, support, y_train,
+                                                      train_mask, placeholders)
             feed_dict.update({placeholders['dropout']: args.dropout})
             # Training step
-            outs = sess.run([model.opt_op, model.loss, model.accuracy, merged],
+            outs = sess.run([model.opt_op, model.loss, model.accuracy,
+                             model.aupr_score, model.auroc_score, merged],
                             feed_dict=feed_dict)
-            writer.add_summary(outs[3], epoch)
-            writer.flush()
-
-            # Validation
-            cost, acc, aupr, auroc = evaluate(features, support, y_test, test_mask, placeholders)
+            train_writer.add_summary(outs[5], epoch)
+            train_writer.flush()
 
             # Print results
-            print("Epoch:", '%04d' % (epoch + 1), "train_loss=", "{:.5f}".format(outs[1]),
-                    "train_acc=", "{:.5f}".format(outs[2]), "val_loss=", "{:.5f}".format(cost),
-                    "val_acc=", "{:.5f}".format(acc), "test_AUPR=", "{:.5f}".format(aupr),
-                    "test_AUROC=", "{:.5f}".format(auroc))
+            if epoch % 5 == 0 or epoch-1 == args.epochs:
+                d = gcn.utils.construct_feed_dict(features, support, y_test,
+                                                  test_mask, placeholders)
+                #loss, acc, aupr, auroc = sess.run([model.loss, model.accuracy,
+                #                                   model.aupr_score, model.auroc_score],
+                #                                  feed_dict=d)
+                summary = sess.run(merged, feed_dict=d)
+
+                test_writer.add_summary(summary, epoch)
+                test_writer.flush()
+                val_acc = sess.run(model.accuracy, feed_dict=d)
+                print("Epoch:", '%04d' % (epoch + 1),
+                      "Train Loss=", "{:.5f}".format(outs[1]),
+                      "Train Acc=", "{:.5f}".format(outs[2]),
+                      "Val Acc=", "{:.5f}".format(val_acc))
+            else:
+                print("Epoch:", '%04d' % (epoch + 1),
+                      "Train Loss=", "{:.5f}".format(outs[1]),
+                      "Train Acc=", "{:.5f}".format(outs[2]))
         print("Optimization Finished!")
 
         # Testing
@@ -372,7 +391,7 @@ if __name__ == "__main__":
             embedding = config.embeddings.add()
             embedding.tensor_name = embedding_var.name
             i += 1
-        projector.visualize_embeddings(writer, config)
+        projector.visualize_embeddings(train_writer, config)
 
         # predict node classification
         predictions = predict(features, support, y_test, test_mask, placeholders)

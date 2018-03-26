@@ -76,9 +76,10 @@ class MYGCN (Model):
         # initialize metrics here
         self.aupr_score = 0
         self.auroc_score = 0
-
+    
         # training, prediction and loss functions
         self.build()
+
 
     def _build(self):
         # add intermediate layers
@@ -118,7 +119,7 @@ class MYGCN (Model):
                                                               self.placeholders['labels_mask']
                                                               )
         if self.logging:
-            tf.summary.scalar('loss', self.loss)
+            tf.summary.scalar('Loss', self.loss)
 
     def _accuracy(self):
         self.accuracy, update_op_acc = self.masked_accuracy(self.outputs,
@@ -133,9 +134,10 @@ class MYGCN (Model):
                                                                 self.placeholders['labels_mask'],
                                                                 curve='ROC')
         if self.logging:
-            tf.summary.scalar('accuracy', update_op_acc)
+            tf.summary.scalar('ACC', update_op_acc)
             tf.summary.scalar('AUPR', update_op_pr)
             tf.summary.scalar('AUROC', update_op_roc)
+
 
     def masked_softmax_cross_entropy_weight(self, scores, labels, mask):
         """Softmax cross-entropy loss with masking and weight for positives."""
