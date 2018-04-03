@@ -310,11 +310,11 @@ if __name__ == "__main__":
 
     # preprocess adjacency matrix and account for larger support
     poly_support = args.support
-    if poly_support > 1:
+    if poly_support > 0:
         support = gcn.utils.chebyshev_polynomials(adj, poly_support)
         num_supports = 1 + poly_support
-    else:
-        support = [gcn.utils.preprocess_adj(adj)]
+    else: # support is 0, don't use the network
+        support = [sp.eye(adj.shape[0])]
         num_supports = 1
 
     # create placeholders
