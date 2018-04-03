@@ -16,8 +16,8 @@ output_path <- args[2]
 number_of_genes <- as.integer(args[3])
 
 # define Biomart (which helps getting entrez gene IDs from ensembl gene IDs)
-ensembl = useMart("ensembl")
-ensembl = useDataset("hsapiens_gene_ensembl", mart=ensembl)
+mart = useMart("ensembl")
+ensembl = useDataset("hsapiens_gene_ensembl", mart = mart)
 #listAttributes(ensembl)
 
 # Define the Universe
