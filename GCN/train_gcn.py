@@ -1,5 +1,6 @@
 import argparse
-import os, h5py
+import os
+import h5py
 from datetime import datetime
 import tensorflow as tf
 import gcn.utils
@@ -24,7 +25,10 @@ from tensorflow.contrib.tensorboard.plugins import projector
 import pickle as pkl
 import networkx as nx
 
-bestSplit = lambda x: (round(math.sqrt(x)), math.ceil(x / round(math.sqrt(x))))
+
+def bestSplit(x): return (round(math.sqrt(x)),
+                          math.ceil(x / round(math.sqrt(x))))
+
 
 def load_cora():
     """Load data."""
@@ -34,7 +38,8 @@ def load_cora():
         with open("../../gcn/gcn/data/ind.cora.{}".format(names[i]), 'rb') as f:
             objects.append(pkl.load(f, encoding='latin1'))
     x, y, tx, ty, allx, ally, graph = tuple(objects)
-    test_idx_reorder = gcn.utils.parse_index_file("../../gcn/gcn/data/ind.cora.test.index")
+    test_idx_reorder = gcn.utils.parse_index_file(
+        "../../gcn/gcn/data/ind.cora.test.index")
     test_idx_range = np.sort(test_idx_reorder)
 
     features = sp.vstack((allx, tx)).tolil()
@@ -81,9 +86,11 @@ def load_hdf_data(path, network_name='network', feature_name='features'):
             val_mask = None
     return network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names
 
+
 def get_color_dataframe(node_names, predictions, y_train, y_test):
-    labels_df = pd.DataFrame(node_names, index=node_names[:, 0], columns=['ID', 'name']).drop('ID', axis=1)
-    labels_df['label'] = (y_train[:,0] | y_test[:,0])
+    labels_df = pd.DataFrame(node_names, index=node_names[:, 0], columns=[
+                             'ID', 'name']).drop('ID', axis=1)
+    labels_df['label'] = (y_train[:, 0] | y_test[:, 0])
     labels_df['train_label'] = y_train[:, 0]
     labels_df['test_label'] = y_test[:, 0]
     labels_df['prediction'] = predictions[:, 0] >= 0.5
@@ -92,6 +99,7 @@ def get_color_dataframe(node_names, predictions, y_train, y_test):
     labels_df.loc[labels_df.train_label == 1, 'color'] = 'green'
     labels_df.loc[labels_df.test_label == 1, 'color'] = 'red'
     return labels_df
+
 
 def plot_weights(sess, model, dir_name):
     for var in model.vars:
@@ -110,7 +118,8 @@ def plot_weights(sess, model, dir_name):
                              'gfpmT8.2', 'gfpmT16.2', 'gfppT8', 'gfppT16',
                              'gfppT8.1', 'gfppT16.1', 'gfppT8.2', 'gfppT16.2']
         else:
-            feature_names = ['filter_{}'.format(i) for i in range(feature_size)]
+            feature_names = ['filter_{}'.format(
+                i) for i in range(feature_size)]
 
         # plot figure itself
         fig = plt.figure(figsize=(30, 20))
@@ -121,31 +130,35 @@ def plot_weights(sess, model, dir_name):
                 ax = plt.subplot(num_rows, num_cols, i+1, sharey=ax, sharex=ax)
             else:
                 ax = plt.subplot(num_rows, num_cols, i+1)
-            plt.barh(np.arange(0, feature_size), weight_mat[:,i])
+            plt.barh(np.arange(0, feature_size), weight_mat[:, i])
             plt.yticks(np.arange(0, feature_size), feature_names)
             #ax.set_yticklabels(feature_names, rotation=0)
-            if i % num_cols != 0: # subplot not one of the left hand side
+            if i % num_cols != 0:  # subplot not one of the left hand side
                 plt.setp(ax.get_yticklabels(), visible=False)
-            if i / num_rows < num_rows-1: # subplot not in the last row
+            if i / num_rows < num_rows-1:  # subplot not in the last row
                 plt.setp(ax.get_xticklabels(), visible=False)
-        fig.savefig(os.path.join(dir_name, 'weights_{}.png'.format(layer_num)), format='png', dpi=200)
+        fig.savefig(os.path.join(dir_name, 'weights_{}.png'.format(
+            layer_num)), format='png', dpi=200)
+
 
 def plot_pca(sess, model, feed_dict, colors, dir_name):
-    print ("Plotting TSNE for activaions...")
+    print("Plotting TSNE for activaions...")
     # assign color to the labels
     node_names
     layer_num = 0
     for layer_act in model.activations:
-        if layer_num == 0: # don't plot input distribution
+        if layer_num == 0:  # don't plot input distribution
             layer_num += 1
             continue
         else:
             activation = sess.run(layer_act, feed_dict=feed_dict)
             if activation.shape[1] > 1:
                 embedding = PCA(n_components=2).fit_transform(activation)
-            else: continue
+            else:
+                continue
         fig = plt.figure(figsize=(14, 8))
-        plt.scatter(embedding[:, 0], embedding[:, 1], c=colors.color, alpha=0.7)
+        plt.scatter(embedding[:, 0], embedding[:, 1],
+                    c=colors.color, alpha=0.7)
         plt.xlabel('PCA Component 1')
         plt.ylabel('PCA Component 2')
         plt.title('PCA Plot: Hidden Layer {}'.format(layer_num))
@@ -154,13 +167,16 @@ def plot_pca(sess, model, feed_dict, colors, dir_name):
         pred_nodes = mpatches.Patch(color='blue', label='Predicted Node')
         train_nodes = mpatches.Patch(color='green', label='Training Nodes')
         test_nodes = mpatches.Patch(color='red', label='Test Nodes')
-        not_involved = mpatches.Patch(color='gray', label='Not Predicted and not labeled')
+        not_involved = mpatches.Patch(
+            color='gray', label='Not Predicted and not labeled')
         plt.legend(handles=[pred_nodes, train_nodes, test_nodes, not_involved])
 
         # save
-        fig.savefig(os.path.join(dir_name, 'pca_{}.png'.format(layer_num)), dpi=300)
-        print ("Plotted TSNE for layer {}".format(layer_num))
+        fig.savefig(os.path.join(
+            dir_name, 'pca_{}.png'.format(layer_num)), dpi=300)
+        print("Plotted TSNE for layer {}".format(layer_num))
         layer_num += 1
+
 
 def plot_roc_pr_curves(y_score, y_true, model_dir):
     # define y_true and y_score
@@ -170,12 +186,13 @@ def plot_roc_pr_curves(y_score, y_true, model_dir):
     # plot ROC curve
     fig = plt.figure(figsize=(14, 8))
     plt.plot(fpr, tpr, lw=3, label='AUC = {0:.2f}'.format(roc_auc))
-    plt.plot([0, 1], [0, 1], color='gray', lw=3, linestyle='--', label='Random')
+    plt.plot([0, 1], [0, 1], color='gray', lw=3,
+             linestyle='--', label='Random')
     plt.xlabel('False Positive Rate')
     plt.ylabel('True Positive Rate')
     plt.title('ROC Curve Prediction on Train and Test')
     plt.legend(loc='lower right')
-    fig.savefig(os.path.join(model_dir,'roc_curve.png'))
+    fig.savefig(os.path.join(model_dir, 'roc_curve.png'))
 
     # plot PR-Curve
     pr, rec, thresholds = precision_recall_curve(y_true, y_score)
@@ -191,15 +208,18 @@ def plot_roc_pr_curves(y_score, y_true, model_dir):
     plt.legend()
     fig.savefig(os.path.join(model_dir, 'prec_recall.png'))
 
+
 def write_hyper_params(args, input_file, file_name):
     with open(file_name, 'w') as f:
         for arg in vars(args):
             f.write('{}\t{}\n'.format(arg, getattr(args, arg)))
         f.write('{}\n'.format(input_file))
-    print ("Hyper-Parameters saved to {}".format(file_name))
+    print("Hyper-Parameters saved to {}".format(file_name))
+
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Train GCN model and save to file')
+    parser = argparse.ArgumentParser(
+        description='Train GCN model and save to file')
     parser.add_argument('-e', '--epochs', help='Number of Epochs',
                         dest='epochs',
                         default=150,
@@ -236,8 +256,14 @@ def parse_args():
                         default=.5,
                         type=float
                         )
+    parser.add_argument('-d', '--data', help='Path to HDF5 container with data',
+                        dest='data',
+                        default=None,
+                        type=str
+                        )
     args = parser.parse_args()
     return args
+
 
 def fits_on_gpu(adj, features, hidden_dims, support):
     """Determines if training should be done on the GPU or CPU.
@@ -247,25 +273,30 @@ def fits_on_gpu(adj, features, hidden_dims, support):
     n = features[2][0]
     sp_adj = gcn.utils.preprocess_adj(adj)
     adj_size = np.prod(sp_adj[0].shape) + np.prod(sp_adj[1].shape)
-    print (adj_size, n)
+    print(adj_size, n)
 
     for layer in range(len(hidden_dims)):
         H_s = n * cur_dim
         W_s = cur_dim * hidden_dims[layer]
         total_size += (adj_size + H_s + W_s)*support
         cur_dim = hidden_dims[layer]
-        print (H_s, W_s, total_size, cur_dim)
-    total_size *= 4 # assume 32 bits (4 bytes) per number
+        print(H_s, W_s, total_size, cur_dim)
+    total_size *= 4  # assume 32 bits (4 bytes) per number
 
-    print (total_size, total_size < 11*1024*1024*1024)
-    return total_size < 11*1024*1024*1024 # 12 GB memory (only take 11)
+    print(total_size, total_size < 11*1024*1024*1024)
+    return total_size < 11*1024*1024*1024  # 12 GB memory (only take 11)
+
 
 if __name__ == "__main__":
     args = parse_args()
-    input_data_path = '../data/preprocessing/legionella_negnopam_unbalanced.h5'
+    if args.data is None or not args.data.endswith('.h5'):
+        print("No path to HDF5 data container provided or data is not hdf5. Exit now.")
+        sys.exit(-1)
+
+    input_data_path = args.data
     data = load_hdf_data(input_data_path, feature_name='features')
     adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names = data
-    print ("Read data from: {}".format(input_data_path))
+    print("Read data from: {}".format(input_data_path))
     #data = load_cora()
     #adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = data
     #node_names = np.array([[str(i), str(i)] for i in np.arange(features.shape[0])])
@@ -274,7 +305,7 @@ if __name__ == "__main__":
     if num_feat > 1:
         features = gcn.utils.preprocess_features(lil_matrix(features))
     else:
-        print ("Not row-normalizing features because feature dim is {}".format(num_feat))
+        print("Not row-normalizing features because feature dim is {}".format(num_feat))
         features = gcn.utils.sparse_to_tuple(lil_matrix(features))
 
     # preprocess adjacency matrix and account for larger support
@@ -285,7 +316,7 @@ if __name__ == "__main__":
     else:
         support = [gcn.utils.preprocess_adj(adj)]
         num_supports = 1
-    
+
     # create placeholders
     placeholders = {
         'support': [tf.sparse_placeholder(tf.float32) for _ in range(num_supports)],
@@ -304,19 +335,19 @@ if __name__ == "__main__":
     #config = tf.ConfigProto(device_count={'GPU': device})
     with tf.Session() as sess:
         model = MYGCN(placeholders=placeholders,
-                    input_dim=features[2][1],
-                    learning_rate=args.lr,
-                    weight_decay=args.decay,
-                    num_hidden_layers=len(args.hidden_dims),
-                    hidden_dims=hidden_dims,
-                    pos_loss_multiplier=args.loss_mul,
-                    logging=True)
+                      input_dim=features[2][1],
+                      learning_rate=args.lr,
+                      weight_decay=args.decay,
+                      num_hidden_layers=len(args.hidden_dims),
+                      hidden_dims=hidden_dims,
+                      pos_loss_multiplier=args.loss_mul,
+                      logging=True)
 
         # create model directory for saving
         root_dir = '../data/GCN/training'
-        if not os.path.isdir(root_dir): # in case training root doesn't exist
+        if not os.path.isdir(root_dir):  # in case training root doesn't exist
             os.mkdir(root_dir)
-            print ("Created Training Subdir")
+            print("Created Training Subdir")
         date_string = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
         os.mkdir(os.path.join(root_dir, date_string))
         save_path = os.path.join(root_dir, date_string)
@@ -329,25 +360,28 @@ if __name__ == "__main__":
 
         # helper functions for evaluation at training time
         def evaluate(features, support, labels, mask, placeholders):
-            d = gcn.utils.construct_feed_dict(features, support, labels, mask, placeholders)
+            d = gcn.utils.construct_feed_dict(
+                features, support, labels, mask, placeholders)
             loss, acc, aupr, auroc = sess.run([model.loss, model.accuracy,
                                                model.aupr_score, model.auroc_score],
                                               feed_dict=d)
             return loss, acc, aupr, auroc
 
         def predict(features, support, labels, mask, placeholders):
-            feed_dict_pred = gcn.utils.construct_feed_dict(features, support, labels, mask, placeholders)
+            feed_dict_pred = gcn.utils.construct_feed_dict(
+                features, support, labels, mask, placeholders)
             pred = sess.run(model.predict(), feed_dict=feed_dict_pred)
             return pred
 
-        sess.run(tf.group(tf.global_variables_initializer(), tf.local_variables_initializer()))
+        sess.run(tf.group(tf.global_variables_initializer(),
+                          tf.local_variables_initializer()))
         for epoch in range(args.epochs):
             feed_dict = gcn.utils.construct_feed_dict(features, support, y_train,
                                                       train_mask, placeholders)
             feed_dict.update({placeholders['dropout']: args.dropout})
             # Training step
             outs = sess.run([model.opt_op, model.loss, model.accuracy,
-                             model.aupr_score, model.auroc_score, merged],
+                             model.auroc_score, model.aupr_score, merged],
                             feed_dict=feed_dict)
             train_writer.add_summary(outs[5], epoch)
             train_writer.flush()
@@ -356,7 +390,7 @@ if __name__ == "__main__":
             if epoch % 5 == 0 or epoch-1 == args.epochs:
                 d = gcn.utils.construct_feed_dict(features, support, y_test,
                                                   test_mask, placeholders)
-                #loss, acc, aupr, auroc = sess.run([model.loss, model.accuracy,
+                # loss, acc, aupr, auroc = sess.run([model.loss, model.accuracy,
                 #                                   model.aupr_score, model.auroc_score],
                 #                                  feed_dict=d)
                 summary = sess.run(merged, feed_dict=d)
@@ -367,26 +401,34 @@ if __name__ == "__main__":
                 print("Epoch:", '%04d' % (epoch + 1),
                       "Train Loss=", "{:.5f}".format(outs[1]),
                       "Train Acc=", "{:.5f}".format(outs[2]),
+                      "Train AUROC={:.5f}".format(outs[3]),
+                      "Train AUPR: {:.5f}".format(outs[4]),
                       "Val Acc=", "{:.5f}".format(val_acc))
             else:
                 print("Epoch:", '%04d' % (epoch + 1),
                       "Train Loss=", "{:.5f}".format(outs[1]),
-                      "Train Acc=", "{:.5f}".format(outs[2]))
+                      "Train Acc=", "{:.5f}".format(outs[2]),
+                      "Train AUROC={:.5f}".format(outs[3]),
+                      "Train AUPR: {:.5f}".format(outs[4]))
         print("Optimization Finished!")
 
         # Testing
-        test_cost, test_acc, test_aupr, test_auroc = evaluate(features, support, y_test, test_mask, placeholders)
+        test_cost, test_acc, test_aupr, test_auroc = evaluate(
+            features, support, y_test, test_mask, placeholders)
         print("Test set results:", "loss=", "{:.5f}".format(test_cost),
-        "accuracy=", "{:.5f}".format(test_acc), "aupr=", "{:.5f}".format(test_aupr),
-        "auroc=", "{:.5f}".format(test_auroc))
+              "accuracy=", "{:.5f}".format(
+                  test_acc), "aupr=", "{:.5f}".format(test_aupr),
+              "auroc=", "{:.5f}".format(test_auroc))
 
         # add embeddings. This is not optimal here. TODO: Add embeddings in class
         config = projector.ProjectorConfig()
         i = 0
         for output in model.activations[1:]:
-            test_dict = gcn.utils.construct_feed_dict(features, support, y_test, test_mask, placeholders)
+            test_dict = gcn.utils.construct_feed_dict(
+                features, support, y_test, test_mask, placeholders)
             act = output.eval(feed_dict=test_dict, session=sess)
-            embedding_var = tf.Variable(act, name='activation_layer_{}'.format(i))
+            embedding_var = tf.Variable(
+                act, name='activation_layer_{}'.format(i))
             sess.run(embedding_var.initializer)
             embedding = config.embeddings.add()
             embedding.tensor_name = embedding_var.name
@@ -394,29 +436,31 @@ if __name__ == "__main__":
         projector.visualize_embeddings(train_writer, config)
 
         # predict node classification
-        predictions = predict(features, support, y_test, test_mask, placeholders)
-        print (predictions.shape)
+        predictions = predict(features, support, y_test,
+                              test_mask, placeholders)
+        print(predictions.shape)
         # save model
         model_save_path = os.path.join(save_path, 'model.ckpt')
-        print ("Save model to {}".format(model_save_path))
+        print("Save model to {}".format(model_save_path))
         path = model.save(model_save_path, sess=sess)
         #saver = tf.train.Saver()
         #path = saver.save(sess, model_save_path)
-
 
         # save predictions
         with open(os.path.join(save_path, 'predictions.tsv'), 'w') as f:
             f.write('ID\tName\tProb_pos\n')
             for pred_idx in range(predictions.shape[0]):
                 f.write('{}\t{}\t{}\n'.format(node_names[pred_idx, 0],
-                                                node_names[pred_idx, 1],
-                                                predictions[pred_idx, 0])
+                                              node_names[pred_idx, 1],
+                                              predictions[pred_idx, 0])
                         )
         # construct color DataFrame for PCA plots
         colors = get_color_dataframe(node_names, predictions, y_train, y_test)
 
         # save hyper Parameters and plot
-        write_hyper_params(args, input_data_path, os.path.join(save_path, 'hyper_params.txt'))
+        write_hyper_params(args, input_data_path, os.path.join(
+            save_path, 'hyper_params.txt'))
         plot_weights(sess, model, save_path)
         plot_pca(sess, model, test_dict, colors, save_path)
-        plot_roc_pr_curves(predictions[test_mask == 1], y_test[test_mask == 1], save_path)
+        plot_roc_pr_curves(
+            predictions[test_mask == 1], y_test[test_mask == 1], save_path)

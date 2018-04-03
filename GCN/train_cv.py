@@ -76,10 +76,11 @@ def load_hdf_data(path, feature_name='features'):
     return network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names
 
 
-def write_hyper_params(args, file_name):
+def write_hyper_params(args, input_file, file_name):
     with open(file_name, 'w') as f:
         for arg in vars(args):
             f.write('{}\t{}\n'.format(arg, getattr(args, arg)))
+        f.write('{}\n'.format(input_file))
     print ("Hyper-Parameters saved to {}".format(file_name))
 
 def parse_args():
@@ -136,7 +137,8 @@ def parse_args():
 if __name__ == "__main__":
     print ("Loading Data...")
     args = parse_args()
-    data = load_hdf_data('../data/preprocessing/legionella_gcn_input_unbalanced.h5', feature_name='features_rep1')
+    data_input_path = '../data/preprocessing/legionella_gcn_input_unbalanced.h5'
+    data = load_hdf_data(dat_input_path, feature_name='features')
     adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names = data
     #data = load_cora()
     #adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = data
@@ -232,4 +234,4 @@ if __name__ == "__main__":
                             )
 
     # save hyper Parameters
-    write_hyper_params(args, os.path.join(save_path, 'hyper_params.txt'))
+    write_hyper_params(args, data_input_path, os.path.join(save_path, 'hyper_params.txt'))
