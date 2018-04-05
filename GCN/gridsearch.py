@@ -15,10 +15,10 @@ from sklearn.model_selection import ParameterGrid, train_test_split
 from sklearn.metrics import average_precision_score
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-def load_hdf_data(path):
+def load_hdf_data(path, feature_name='features'):
     with h5py.File(path, 'r') as f:
         network = f['network'][:]
-        features = f['features'][:]
+        features = f[feature_name][:]
         node_names = f['gene_names'][:]
         y_train = f['y_train'][:]
         y_test = f['y_test'][:]
@@ -174,7 +174,8 @@ def run_model(session, params, adj, features, y_train, y_test, train_mask, test_
 if __name__ == "__main__":
     print ("Loading Data...")
     cv_runs = 5
-    data = load_hdf_data('../data/cancer/hotnet_iref_vec_input_unbalanced.h5')
+    data = load_hdf_data('../data/cancer/mutfreq_iref_unbalanced_syn.h5',
+                         feature_name='features_mean')
     adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names = data
     num_nodes = adj.shape[0]
     num_feat = features.shape[1]
@@ -183,19 +184,27 @@ if __name__ == "__main__":
     else:
         print ("Not row-normalizing features because feature dim is {}".format(num_feat))
         features = gcn.utils.sparse_to_tuple(lil_matrix(features))
-
+    
     params = {'support':[1, 2],
               'dropout':[.1],
               'hidden_dims': [[20, 40], [20, 40, 80], [80, 40, 20], [5], [20, 40, 40, 20],
-                             [100], [100, 200], [5, 40, 5]],
+                             [100], [5, 40, 5]],
               'loss_mul': [1, 50, 175, 250],
               'learningrate':[0.1, .01, .0005],
               'epochs':[700],
               'weight_decay':[5e-4, 5e-2]
               }
+    """
+    params = {'support':[2],
+              'dropout':[.1],
+              'hidden_dims':[[100, 200]],
+              'loss_mul':[1],
+              'learningrate':[.1],
+              'epochs':[700],
+              'weight_decay':[0.05]
+              }
+    """
 
-    #params = {'support':[2], 'dropout':[.1], 'hidden_dims':[[40, 80]], 'loss_mul':[175], 'learningrate':[.01], 'epochs':[500], 'weight_decay':[5e-4]}
- 
     num_of_settings = len(list(ParameterGrid(params)))
     print ("Grid Search: Trying {} different parameter settings...".format(num_of_settings))
     param_num = 1
@@ -211,6 +220,6 @@ if __name__ == "__main__":
         param_num += 1
         tf.reset_default_graph()
     # write results from gridsearch to file
-    out_name = '../data/gridsearch/gridsearchcv_results_cancer_vec_unbalanced.pkl'
+    out_name = '../data/gridsearch/gridsearchcv_results_cancer_syn_mean_unbalanced.pkl'
     with open(out_name, 'wb') as f:
         pickle.dump(performances, f)
