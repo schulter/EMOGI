@@ -51,7 +51,7 @@ def get_personalization_vec(diff_expr, gene_names):
     return personalization
 
 
-def pagerank(network_path, diff_expr=None, alpha=0.3):
+def pagerank(network, gene_names, diff_expr=None, alpha=0.3):
     """Execute PageRank/NetRank algorithm.
 
     This function calculates the PageRanks or NetRanks for the given PPI network
@@ -70,12 +70,8 @@ def pagerank(network_path, diff_expr=None, alpha=0.3):
     -------
     A list of tuples with the sorted PageRank/NetRank scores and gene names.
     """
-    with h5py.File(network_path, 'r') as f:
-        ppi_network = f['network'][:]
-        gene_names = f['gene_names'][:]
-
     # build networkx graph
-    G = nx.from_numpy_matrix(ppi_network)
+    G = nx.from_numpy_matrix(network)
 
     # compute personalization vector and do pagerank/netrank
     if not diff_expr is None:
@@ -139,8 +135,13 @@ if __name__ == "__main__":
     else:
         de = None
 
+    # load network and gene names
+    with h5py.File(ppi_path, 'r') as f:
+        ppi_network = f['network'][:]
+        gene_names = f['gene_names'][:]
+
     # execute PageRank/NetRank with PPI network and write results to file
-    scores, gene_names = pagerank(ppi_path, de, alpha)
+    scores, gene_names = pagerank(ppi_network, gene_names, de, alpha)
     write_ranking(scores, gene_names, out_path)
 
     print ("Done with PageRank Algorithm! Exit!")
