@@ -294,7 +294,7 @@ if __name__ == "__main__":
         sys.exit(-1)
 
     input_data_path = args.data
-    data = load_hdf_data(input_data_path, feature_name='features')
+    data = load_hdf_data(input_data_path, feature_name='features_mean')
     adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names = data
     print("Read data from: {}".format(input_data_path))
     #data = load_cora()

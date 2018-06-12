@@ -186,13 +186,13 @@ if __name__ == "__main__":
         features = gcn.utils.sparse_to_tuple(lil_matrix(features))
     
     params = {'support':[1, 2],
-              'dropout':[.1],
+              'dropout':[.5],
               'hidden_dims': [[20, 40], [20, 40, 80], [80, 40, 20], [5], [20, 40, 40, 20],
                              [100], [5, 40, 5]],
               'loss_mul': [1, 50, 175, 250],
               'learningrate':[0.1, .01, .0005],
               'epochs':[700],
-              'weight_decay':[5e-4, 5e-2]
+              'weight_decay':[5e-4]
               }
     """
     params = {'support':[2],
@@ -220,6 +220,6 @@ if __name__ == "__main__":
         param_num += 1
         tf.reset_default_graph()
     # write results from gridsearch to file
-    out_name = '../data/gridsearch/gridsearchcv_results_cancer_syn_mean_unbalanced.pkl'
+    out_name = '../data/gridsearch/gridsearchcv_results_cnasnv_syn_mean_unbalanced.pkl'
     with open(out_name, 'wb') as f:
         pickle.dump(performances, f)
