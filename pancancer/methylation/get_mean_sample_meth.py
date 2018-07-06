@@ -8,50 +8,6 @@ from collections import Counter
 from joblib import Parallel, delayed
 
 
-def get_mean_betaval_for_promoters(annotation_genes, methylation_levels):
-    """Extract the mean methylation level at promoters for each gene in the annotation.
-    
-    This function looks for all the methylation sites that fall
-    inside all the promoters in the annotation genes df.
-    The annotation_genes df is expected to contain the columns
-    'promoter_start' and 'promoter_end'.
-    
-    Parameters:
-    ----------
-    annotation_genes:                 A dataframe containing a gene per row.
-                                      It needs to have columns for promoter_start
-                                      and promoter_end.
-    methylation_levels:               A dataframe that contains cpg sites per row.
-                                      The sites are expected to be one bp long and
-                                      should have the columns: 'Start', 'End' and 
-                                      'Beta_value'.
-    Returns:
-    Two lists with the mean beta values for each promoter and the number of cpg sites
-    that support the promoter. The first list contains the mean beta values and
-    the second list contains the support.
-    """
-    beta_vals_prom = []
-    beta_vals_gene = []
-    n_supports_prom = []
-    n_supports_gene = []
-    count = 0
-    for _, row in annotation_genes.iterrows():
-        # promoter
-        m_sites_in_promoter = methylation_levels[methylation_levels.Start.between(row.promoter_start, row.promoter_end)]
-        beta_vals_prom.append(m_sites_in_promoter.Beta_value.mean())
-        n_supports_prom.append(m_sites_in_promoter.shape[0])
-        # gene body
-        if row.strand == '+':
-            m_sites_gene = methylation_levels[methylation_levels.Start.between(row.promoter_end, row.end)]
-        else:
-            m_sites_gene = methylation_levels[methylation_levels.Start.between(row.start, row.promoter_start)]
-        beta_vals_gene.append(m_sites_gene.Beta_value.mean())
-        n_supports_gene.append(m_sites_gene.shape[0])
-        count += 1
-
-    return beta_vals_prom, beta_vals_gene, n_supports_prom, n_supports_gene
-
-
 def load_annotation_gff(annotation_path, gene_list=None, meth_data=None):
     """Load a GFF annotation file from disk into a pandas DF.
 
@@ -175,16 +131,66 @@ def get_filenames(meth_raw_dir):
     """Extract all valid methylation files in dir.
     """
     all_filenames = []
+    skipped_files = 0
     for dname in os.listdir(meth_raw_dir):
         sub_dirname = os.path.join(meth_raw_dir, dname)
         if os.path.isdir(sub_dirname):
             for fname in os.listdir(sub_dirname):
                 if fname.endswith('gdc_hg38.txt'):
-                    all_filenames.append(os.path.join(sub_dirname, fname))
+                    # don't use 27k methylation arrays
+                    if fname.split('.')[2].endswith('450'):
+                        all_filenames.append(os.path.join(sub_dirname, fname))
+                    else:
+                        skipped_files += 1
+    print ("Skipped {} 27k arrays".format(skipped_files))
     return all_filenames
 
 
-def get_mean_for_sample(annotation_df, path_name, clean=False):
+def get_mean_betaval_for_sample(annotation_genes, methylation_levels):
+    """Extract mean methylation levels in promoters/gene bodies for each annotated gene.
+    
+    This function looks for all the methylation sites that fall
+    inside all the promoters and gene bodies in the annotation genes df.
+    The annotation_genes df is expected to contain the columns
+    'promoter_start' and 'promoter_end'.
+    
+    Parameters:
+    ----------
+    annotation_genes:                 A dataframe containing a gene per row.
+                                      It needs to have columns for promoter_start
+                                      and promoter_end.
+    methylation_levels:               A dataframe that contains cpg sites per row.
+                                      The sites are expected to be one bp long and
+                                      should have the columns: 'Start', 'End' and 
+                                      'Beta_value'.
+    Returns:
+    Two lists with the mean beta values for each promoter and the number of cpg sites
+    that support the promoter. The first list contains the mean beta values and
+    the second list contains the support.
+    """
+    beta_vals_prom = []
+    beta_vals_gene = []
+    n_supports_prom = []
+    n_supports_gene = []
+    count = 0
+    for _, row in annotation_genes.iterrows():
+        # promoter
+        m_sites_in_promoter = methylation_levels[methylation_levels.Start.between(row.promoter_start, row.promoter_end)]
+        beta_vals_prom.append(m_sites_in_promoter.Beta_value.mean())
+        n_supports_prom.append(m_sites_in_promoter.shape[0])
+        # gene body. Don't start with the start and end coordinates but rather with the end of the promoter
+        if row.strand == '+':
+            m_sites_gene = methylation_levels[methylation_levels.Start.between(row.promoter_end, row.end)]
+        else:
+            m_sites_gene = methylation_levels[methylation_levels.Start.between(row.start, row.promoter_start)]
+        beta_vals_gene.append(m_sites_gene.Beta_value.mean())
+        n_supports_gene.append(m_sites_gene.shape[0])
+        count += 1
+    return beta_vals_prom, beta_vals_gene, n_supports_prom, n_supports_gene
+
+
+
+def get_meth_df_for_sample(annotation_df, path_name, clean=False):
     """Calculates the mean methylation DF for one sample.
     
     This function computes the mean methylation level at
@@ -210,7 +216,7 @@ def get_mean_for_sample(annotation_df, path_name, clean=False):
     if not os.path.isfile(avg_meth_result_path) or clean:
         # get mean methylation levels around promoters
         meth_df = load_methylation_file(path_name)
-        beta_p, beta_g, sup_p, sup_g = get_mean_betaval_for_promoters(annotation_df, meth_df)
+        beta_p, beta_g, sup_p, sup_g = get_mean_betaval_for_sample(annotation_df, meth_df)
         # construct dataframe from results
         res = pd.DataFrame([beta_p, sup_p, beta_g, sup_g]).T
         colnames = ['mean_beta_value_promoter', 'support_promoter',
@@ -224,80 +230,8 @@ def get_mean_for_sample(annotation_df, path_name, clean=False):
         res.to_csv(avg_meth_result_path, sep='\t')
     else:
         res = pd.read_csv(avg_meth_result_path, sep='\t')
+        res.set_index('Symbol', inplace=True)
     return res, cancer_type
-
-
-def get_all_mean_betavals(annotation_df, meth_files, clean=False):
-    """Calculate the mean methylation beta values for all promoters.
-
-    Calculate the average methylation beta values for a set of promoters
-    using methylation array data and genome annotation. This is done by
-    extracting a promoter window of 500 bp around the promoter and then
-    looking with cpg sites are located within that window.
-    From there, the average is build.
-
-    Parameters:
-    ----------
-    annotation_df:              The pandas dataframe containing annotations
-                                for all of the genes.
-                                It is expected taht the DF contains a column
-                                'promoter_start' and 'promoter_end' which
-                                denotes the promoter start and end sites,
-                                respectively.
-    meth_raw_dir:               A directory containing the downloaded data
-                                from TCGA. The dir is expected to contain
-                                sub-dirs with all the methylation data in them.
-    clean:                      Re-compute the mean beta values for all
-                                promoters even when the
-                                'avg_promoter_methylation.tsv' file is already
-                                present? Defaults to False.
-    
-    Returns:
-    -------
-    Three lists of lists, containing the mean methylation for all promoters,
-    the mean support (#cpg sites with measurements) for all promoters and
-    the cancer type of the samples. The lists have the same ordering.
-    """
-    count = 0
-    cancer_types = []
-    dfs_samples_preprocessed = []
-    for path_name in meth_files:
-        sub_dirname = os.path.dirname(path_name)
-        fname = os.path.basename(path_name)
-        avg_meth_result_path = os.path.join(sub_dirname,
-                        'avg_promoter_methylation.tsv'
-                        )
-        # get the cancer type first
-        cancer_type = fname.split('.')[1].split('_')[1].strip().lower()
-        sample_id = fname.split('.')[-3].strip()
-        if not os.path.isfile(avg_meth_result_path) or clean:
-            # get mean methylation levels around promoters
-            meth_df = load_methylation_file(path_name)
-            beta_p, beta_g, sup_p, sup_g = get_mean_betaval_for_promoters(annotation_df, meth_df)
-            # construct dataframe from results
-            res = pd.DataFrame([beta_p, sup_p, beta_g, sup_g]).T
-            colnames = ['mean_beta_value_promoter', 'support_promoter',
-                           'mean_beta_value_gene', 'support_gene']
-            cols = ['{}|{}|{}'.format(sample_id, cancer_type, i) for i in colnames]
-            res.columns = cols
-            res.set_index(annotation_df.Symbol, inplace=True)
-            # add dataframe to overall results and write to file
-            dfs_samples_preprocessed.append(res)
-            cancer_types.append(cancer_type)
-
-            # write the average beta values (at promoters) to file
-            res.to_csv(avg_meth_result_path, sep='\t')
-        else:
-            res = pd.read_csv(avg_meth_result_path, sep='\t')
-            dfs_samples_preprocessed.append(res)
-            cancer_types.append(cancer_type)
-            count += 1
-        if count % 100 == 0:
-            print ("Processed {} methylation samples".format(count))  
-
-    return dfs_samples_preprocessed, cancer_types
-
-    return dfs_samples_preprocessed, cancer_types
 
 
 if __name__ == '__main__':
@@ -375,9 +309,9 @@ if __name__ == '__main__':
 
     # get the preprocessed samples (this is time-consuming)
     all_files = get_filenames(args.meth_dir)
-    results = Parallel(n_jobs=args.n_jobs)(delayed(get_mean_for_sample)(annotation_df,
-                                                                        f,
-                                                                        args.clean) for f in all_files)
+    results = Parallel(n_jobs=args.n_jobs)(delayed(get_meth_df_for_sample)(annotation_df,
+                                                                           f,
+                                                                           args.clean) for f in all_files)
     all_samples_preprocessed = [i[0] for i in results]
     cancer_types = [i[1] for i in results]
 
@@ -390,4 +324,3 @@ if __name__ == '__main__':
         print ("Found {} samples for Cancer {}".format(value, key))
 
     print ("Finished. Written mean methylation matrix for {} samples to disk".format(len(all_samples_preprocessed)))
-    
