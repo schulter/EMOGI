@@ -91,24 +91,31 @@ def sparse_to_tuple(sparse_mx):
     return sparse_mx
 
 
-def preprocess_features(features):
+def preprocess_features(features, sparse=True):
     """Row-normalize feature matrix and convert to tuple representation"""
     rowsum = np.array(features.sum(1))
     r_inv = np.power(rowsum, -1).flatten()
     r_inv[np.isinf(r_inv)] = 0.
     r_mat_inv = sp.diags(r_inv)
     features = r_mat_inv.dot(features)
-    return sparse_to_tuple(features)
+    if sparse:
+        return sparse_to_tuple(features)
+    else:
+        return features.todense()
 
 
-def normalize_adj(adj):
+def normalize_adj(adj, sparse=True):
     """Symmetrically normalize adjacency matrix."""
     adj = sp.coo_matrix(adj)
     rowsum = np.array(adj.sum(1))
     d_inv_sqrt = np.power(rowsum, -0.5).flatten()
     d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.
     d_mat_inv_sqrt = sp.diags(d_inv_sqrt)
-    return adj.dot(d_mat_inv_sqrt).transpose().dot(d_mat_inv_sqrt).tocoo()
+    res = adj.dot(d_mat_inv_sqrt).transpose().dot(d_mat_inv_sqrt)
+    if sparse:
+        return res.tocoo()
+    else:
+        return res.todense()
 
 
 def preprocess_adj(adj):
@@ -128,17 +135,20 @@ def construct_feed_dict(features, support, labels, labels_mask, placeholders):
     return feed_dict
 
 
-def chebyshev_polynomials(adj, k):
+def chebyshev_polynomials(adj, k, sparse=True):
     """Calculate Chebyshev polynomials up to order k. Return a list of sparse matrices (tuple representation)."""
     print("Calculating Chebyshev polynomials up to order {}...".format(k))
 
-    adj_normalized = normalize_adj(adj)
+    adj_normalized = normalize_adj(adj, sparse=sparse)
     laplacian = sp.eye(adj.shape[0]) - adj_normalized
     largest_eigval, _ = eigsh(laplacian, 1, which='LM')
     scaled_laplacian = (2. / largest_eigval[0]) * laplacian - sp.eye(adj.shape[0])
 
     t_k = list()
-    t_k.append(sp.eye(adj.shape[0]))
+    if sparse:
+        t_k.append(sp.eye(adj.shape[0]))
+    else:
+        t_k.append(np.eye(adj.shape[0]))
     t_k.append(scaled_laplacian)
 
     def chebyshev_recurrence(t_k_minus_one, t_k_minus_two, scaled_lap):
@@ -148,4 +158,7 @@ def chebyshev_polynomials(adj, k):
     for i in range(2, k+1):
         t_k.append(chebyshev_recurrence(t_k[-1], t_k[-2], scaled_laplacian))
 
-    return sparse_to_tuple(t_k)
+    if sparse:
+        return sparse_to_tuple(t_k)
+    else:
+        return t_k

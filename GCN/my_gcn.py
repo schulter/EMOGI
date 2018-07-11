@@ -2,7 +2,7 @@
 import tensorflow as tf
 #from utils import *
 
-from gcn.layers import GraphConvolution
+from gcn.layers import GraphConvolution, dot
 from gcn.models import Model
 #from gcn.metrics import masked_accuracy
 import io
@@ -38,6 +38,34 @@ class MyGraphConvolution(GraphConvolution):
                 tf.summary.scalar('max', tf.reduce_max(tensor))
                 tf.summary.scalar('min', tf.reduce_min(tensor))
                 tf.summary.histogram('histogram', tensor)
+
+    def _call(self, inputs):
+        x = inputs
+
+        # dropout
+        if self.sparse_inputs:
+            x = sparse_dropout(x, 1-self.dropout, self.num_features_nonzero)
+        else:
+            x = tf.nn.dropout(x, 1-self.dropout)
+
+        # convolve
+        supports = list()
+        for i in range(len(self.support)):
+            if not self.featureless:
+                pre_sup = dot(x, self.vars['weights_' + str(i)],
+                              sparse=self.sparse_inputs)
+            else:
+                pre_sup = self.vars['weights_' + str(i)]
+            support = dot(self.support[i], pre_sup, sparse=self.sparse_inputs)
+            supports.append(support)
+        output = tf.add_n(supports)
+
+        # bias
+        if self.bias:
+            output += self.vars['bias']
+
+        return self.act(output)
+
 
     def __call__(self, inputs):
         with tf.name_scope(self.name):
@@ -91,7 +119,7 @@ class MYGCN (Model):
                                                   placeholders=self.placeholders,
                                                   act=tf.nn.relu,
                                                   dropout=True,
-                                                  sparse_inputs=l == 0,
+                                                  sparse_inputs=False,
                                                   name='gclayer_{}'.format(l+1),
                                                   logging=self.logging)
             )
