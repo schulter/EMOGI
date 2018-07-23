@@ -174,8 +174,8 @@ def run_model(session, params, adj, features, y_train, y_test, train_mask, test_
 if __name__ == "__main__":
     print ("Loading Data...")
     cv_runs = 5
-    data = load_hdf_data('../data/cancer/mutfreq_iref_unbalanced_syn.h5',
-                         feature_name='features_mean')
+    data = load_hdf_data('../data/pancancer/iref_multiomics_norm.h5',
+                         feature_name='features')
     adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names = data
     num_nodes = adj.shape[0]
     num_feat = features.shape[1]
@@ -189,9 +189,9 @@ if __name__ == "__main__":
               'dropout':[.5],
               'hidden_dims': [[20, 40], [20, 40, 80], [80, 40, 20], [5], [20, 40, 40, 20],
                              [100], [5, 40, 5]],
-              'loss_mul': [1, 50, 175, 250],
+              'loss_mul': [175, 250],
               'learningrate':[0.1, .01, .0005],
-              'epochs':[700],
+              'epochs':[1000],
               'weight_decay':[5e-4]
               }
     """
@@ -220,6 +220,6 @@ if __name__ == "__main__":
         param_num += 1
         tf.reset_default_graph()
     # write results from gridsearch to file
-    out_name = '../data/gridsearch/gridsearchcv_results_cnasnv_syn_mean_unbalanced.pkl'
+    out_name = '../data/gridsearch/gridsearchcv_results_multiomics_norm.pkl'
     with open(out_name, 'wb') as f:
         pickle.dump(performances, f)
