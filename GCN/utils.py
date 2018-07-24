@@ -165,5 +165,6 @@ def chebyshev_polynomials(adj, k, sparse=True):
 
 def subtract_lower_support(polys):
     for i in range(1, len(polys)):
-        polys[i][np.abs(polys[i-1]) > 0.0001] = 0
+        for j in range(0, i):
+            polys[i][np.abs(polys[j]) > 0.0001] = 0
     return polys
