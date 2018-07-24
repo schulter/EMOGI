@@ -313,9 +313,10 @@ if __name__ == "__main__":
     poly_support = args.support
     if poly_support > 0:
         support = utils.chebyshev_polynomials(adj, poly_support, sparse=False)
+        support = utils.subtract_lower_support(support)
         num_supports = 1 + poly_support
     else: # support is 0, don't use the network
-        support = [sp.eye(adj.shape[0])]
+        support = [np.eye(adj.shape[0])]
         num_supports = 1
 
     # create placeholders
