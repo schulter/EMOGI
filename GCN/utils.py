@@ -135,7 +135,7 @@ def construct_feed_dict(features, support, labels, labels_mask, placeholders):
     return feed_dict
 
 
-def chebyshev_polynomials(adj, k, sparse=True):
+def chebyshev_polynomials(adj, k, sparse=True, subtract_support=True):
     """Calculate Chebyshev polynomials up to order k. Return a list of sparse matrices (tuple representation)."""
     print("Calculating Chebyshev polynomials up to order {}...".format(k))
 
@@ -159,10 +159,14 @@ def chebyshev_polynomials(adj, k, sparse=True):
         t_k.append(chebyshev_recurrence(t_k[-1], t_k[-2], scaled_laplacian))
 
     if sparse:
-        t_k = subtract_lower_support(t_k)
+        if subtract_support:
+            t_k = subtract_lower_support(t_k)
         return sparse_to_tuple(t_k)
     else:
-        return subtract_lower_support(t_k)
+        if subtract_support:
+            return subtract_lower_support(t_k)
+        else:
+            return t_k
 
 def subtract_lower_support(polys):
     for i in range(1, len(polys)):
