@@ -304,7 +304,7 @@ if __name__ == "__main__":
     num_nodes = adj.shape[0]
     num_feat = features.shape[1]
     if num_feat > 1:
-        features = utils.preprocess_features(lil_matrix(features), sparse=False)
+        features = utils.preprocess_features(lil_matrix(features))
     else:
         print("Not row-normalizing features because feature dim is {}".format(num_feat))
         features = gcn.utils.sparse_to_tuple(lil_matrix(features))
@@ -312,17 +312,17 @@ if __name__ == "__main__":
     # preprocess adjacency matrix and account for larger support
     poly_support = args.support
     if poly_support > 0:
-        support = utils.chebyshev_polynomials(adj, poly_support, sparse=False)
-        support = utils.subtract_lower_support(support)
+        support = gcn.utils.chebyshev_polynomials(adj, poly_support)
+        #support = utils.subtract_lower_support(support)
         num_supports = 1 + poly_support
     else: # support is 0, don't use the network
-        support = [np.eye(adj.shape[0])]
+        support = [sp.eye(adj.shape[0])]
         num_supports = 1
 
     # create placeholders
     placeholders = {
-        'support': [tf.placeholder(tf.float32) for _ in range(num_supports)],
-        'features': tf.placeholder(tf.float32, shape=features.shape),
+        'support': [tf.sparse_placeholder(tf.float32) for _ in range(num_supports)],
+        'features': tf.sparse_placeholder(tf.float32, shape=features[2]),
         'labels': tf.placeholder(tf.float32, shape=(None, y_train.shape[1])),
         'labels_mask': tf.placeholder(tf.int32),
         'dropout': tf.placeholder_with_default(0., shape=()),
@@ -336,15 +336,13 @@ if __name__ == "__main__":
     #config = tf.ConfigProto(device_count={'GPU': device})
     with tf.Session() as sess:
         model = MYGCN(placeholders=placeholders,
-                      input_dim=features.shape[1],
+                      input_dim=features[2][1],
                       learning_rate=args.lr,
                       weight_decay=args.decay,
                       num_hidden_layers=len(args.hidden_dims),
                       hidden_dims=hidden_dims,
                       pos_loss_multiplier=args.loss_mul,
                       logging=True)
-        print ("model costructed")
-        print (type(features))
 
         # create model directory for saving
         root_dir = '../data/GCN/training'

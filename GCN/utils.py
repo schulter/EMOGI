@@ -159,9 +159,10 @@ def chebyshev_polynomials(adj, k, sparse=True):
         t_k.append(chebyshev_recurrence(t_k[-1], t_k[-2], scaled_laplacian))
 
     if sparse:
+        t_k = subtract_lower_support(t_k)
         return sparse_to_tuple(t_k)
     else:
-        return t_k
+        return subtract_lower_support(t_k)
 
 def subtract_lower_support(polys):
     for i in range(1, len(polys)):

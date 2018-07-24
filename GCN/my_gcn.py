@@ -39,34 +39,6 @@ class MyGraphConvolution(GraphConvolution):
                 tf.summary.scalar('min', tf.reduce_min(tensor))
                 tf.summary.histogram('histogram', tensor)
 
-    def _call(self, inputs):
-        x = inputs
-
-        # dropout
-        if self.sparse_inputs:
-            x = sparse_dropout(x, 1-self.dropout, self.num_features_nonzero)
-        else:
-            x = tf.nn.dropout(x, 1-self.dropout)
-
-        # convolve
-        supports = list()
-        for i in range(len(self.support)):
-            if not self.featureless:
-                pre_sup = dot(x, self.vars['weights_' + str(i)],
-                              sparse=self.sparse_inputs)
-            else:
-                pre_sup = self.vars['weights_' + str(i)]
-            support = dot(self.support[i], pre_sup, sparse=self.sparse_inputs)
-            supports.append(support)
-        output = tf.add_n(supports)
-
-        # bias
-        if self.bias:
-            output += self.vars['bias']
-
-        return self.act(output)
-
-
     def __call__(self, inputs):
         with tf.name_scope(self.name):
             if self.logging and not self.sparse_inputs:
@@ -113,13 +85,12 @@ class MYGCN (Model):
         # add intermediate layers
         inp_dim = self.input_dim
         for l in range(self.num_hidden_layers):
-            sparsity = l == 0 # first layer is sparse, the others not
             self.layers.append(MyGraphConvolution(input_dim=inp_dim,
                                                   output_dim=self.hidden_dims[l],
                                                   placeholders=self.placeholders,
                                                   act=tf.nn.relu,
                                                   dropout=True,
-                                                  sparse_inputs=False,
+                                                  sparse_inputs=l==0,
                                                   name='gclayer_{}'.format(l+1),
                                                   logging=self.logging)
             )
