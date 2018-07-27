@@ -127,7 +127,7 @@ def save_plots(feature_names, idx_gene, features, feature_attr, node_names, most
     _hide_top_right(ax[2])
     for axis in ax:
         for tick in axis.get_xticklabels():
-            tick.set_rotation(45)
+            tick.set_rotation(90)
     plt.tight_layout()
     fig.savefig("{}{}.pdf".format(out_dir, node_names[idx_gene]))
     fig.clf()
@@ -172,7 +172,6 @@ def interpretation(model_dir, genes, out_dir, save_edge_lists=False):
 
     if args["support"] > 0:
         support = utils.chebyshev_polynomials(adj, args["support"], sparse=False)
-        support = utils.subtract_lower_support(support)
         num_supports = 1 + args["support"]
     else:
         support = [np.eye(adj.shape[0])]
@@ -197,7 +196,7 @@ def interpretation(model_dir, genes, out_dir, save_edge_lists=False):
                           num_hidden_layers=len(args['hidden_dims']),
                           hidden_dims=args['hidden_dims'],
                           pos_loss_multiplier=args['loss_mul'],
-                          logging=False, sparse=False)
+                          logging=False, sparse_network=False)
             model.load(ckpt.model_checkpoint_path, sess)
 
             for gene in genes:
@@ -217,8 +216,8 @@ def main():
     # '../data/GCN/training/pancancer_meth_450k_1000bpprom/'
     # '../data/GCN/training/pancancer_tcgage/'
     # '../data/GCN/training/simulation_LRP_subsupport_all/'
-    interpretation(model_dir = '../data/GCN/training/pancancer_multiomics_meth1000_tcgage',
-                   genes = ["CEBPB", "CHD1", "CHD3", "CHD4", "TP53", "PADI4", "RBL2", "BRCA1", "BRCA2", "NOTCH2", "NOTCH1",
+    interpretation(model_dir = '../data/GCN/training/pancancer_multiomics_methpromonly1000_tcgage',
+                   genes = ["NCK1", "ITGAX", "PAG1", "SH2B2", "CEBPB", "CHD1", "CHD3", "CHD4", "TP53", "PADI4", "RBL2", "BRCA1", "BRCA2", "NOTCH2", "NOTCH1",
                             "MYOC", "ZNF24", "SIM1", "HSP90AA1", "ARNT"],
                    out_dir = "tests_ge/",
                    save_edge_lists = True)
@@ -226,27 +225,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-# Traceback (most recent call last):
-#   File "interpret.py", line 118, in <module>
-#     logging=True)
-#   File "/project/lincrnas/roman/diseasegcn/GCN/my_gcn.py", line 81, in __init__
-#     self.build()
-#   File "/home/budach/python/lib/python3.6/site-packages/gcn/models.py", line 46, in build
-#     hidden = layer(self.activations[-1])
-#   File "/project/lincrnas/roman/diseasegcn/GCN/my_gcn.py", line 46, in __call__
-#     outputs = self._call(inputs)
-#   File "/home/budach/python/lib/python3.6/site-packages/gcn/layers.py", line 178, in _call
-#     sparse=self.sparse_inputs)
-#   File "/home/budach/python/lib/python3.6/site-packages/gcn/layers.py", line 33, in dot
-#     res = tf.sparse_tensor_dense_matmul(x, y)
-#   File "/home/budach/python/lib/python3.6/site-packages/tensorflow/python/ops/sparse_ops.py", line 1812, in sparse_tensor_dense_matmul
-#     sp_a = _convert_to_sparse_tensor(sp_a)
-#   File "/home/budach/python/lib/python3.6/site-packages/tensorflow/python/ops/sparse_ops.py", line 60, in _convert_to_sparse_tensor
-#     raise TypeError("Input must be a SparseTensor.")
-# TypeError: Input must be a SparseTensor.

@@ -4,13 +4,58 @@ import tensorflow as tf
 
 from gcn.layers import GraphConvolution, dot
 from gcn.models import Model
+from gcn.inits import glorot
+
 #from gcn.metrics import masked_accuracy
 import io
 import matplotlib.pyplot as plt
 import math
 bestSplit = lambda x: (round(math.sqrt(x)), math.ceil(x / round(math.sqrt(x))))
 
+
+
+def sparse_dropout(x, keep_prob, noise_shape):
+    """Dropout for sparse tensors."""
+    random_tensor = keep_prob
+    random_tensor += tf.random_uniform(noise_shape)
+    dropout_mask = tf.cast(tf.floor(random_tensor), dtype=tf.bool)
+    pre_out = tf.sparse_retain(x, dropout_mask)
+    return pre_out * (1./keep_prob)
+
+
+
 class MyGraphConvolution(GraphConvolution):
+    def __init__(self, input_dim, output_dim, placeholders, dropout=0.,
+                 sparse_inputs=False, act=tf.nn.relu, bias=False,
+                 featureless=False, sparse_network=True, **kwargs):
+        super(GraphConvolution, self).__init__(**kwargs)
+
+        if dropout:
+            self.dropout = placeholders['dropout']
+        else:
+            self.dropout = 0.
+
+        self.act = act
+        self.support = placeholders['support']
+        self.sparse_inputs = sparse_inputs
+        self.featureless = featureless
+        self.bias = bias
+        self.sparse_network = sparse_network
+
+        # helper variable for sparse dropout
+        self.num_features_nonzero = placeholders['num_features_nonzero']
+
+        with tf.variable_scope(self.name + '_vars'):
+            for i in range(len(self.support)):
+                self.vars['weights_' + str(i)] = glorot([input_dim, output_dim],
+                                                        name='weights_' + str(i))
+            if self.bias:
+                self.vars['bias'] = zeros([output_dim], name='bias')
+
+        if self.logging:
+            self._log_vars()
+
+
     def make_weights_plot(self, weight_mat):
         """Create a pyplot plot and save to buffer."""
         fig = plt.figure()
@@ -57,7 +102,7 @@ class MyGraphConvolution(GraphConvolution):
                               sparse=self.sparse_inputs)
             else:
                 pre_sup = self.vars['weights_' + str(i)]
-            support = dot(self.support[i], pre_sup, sparse=self.sparse_inputs)
+            support = dot(self.support[i], pre_sup, sparse=self.sparse_network)
             supports.append(support)
         output = tf.add_n(supports)
 
@@ -80,7 +125,7 @@ class MyGraphConvolution(GraphConvolution):
 class MYGCN (Model):
     def __init__(self, placeholders, input_dim, learning_rate=0.1,
                  num_hidden_layers=2, hidden_dims=[20, 40], pos_loss_multiplier=1,
-                 weight_decay=5e-4, sparse=True, **kwargs):
+                 weight_decay=5e-4, sparse_network=True, **kwargs):
         super(MYGCN, self).__init__(**kwargs)
 
         # some checks first
@@ -94,7 +139,7 @@ class MYGCN (Model):
         self.output_dim = placeholders['labels'].get_shape().as_list()[1]
         self.placeholders = placeholders
         self.optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
-        self.sparse_network = sparse
+        self.sparse_network = sparse_network
 
         # model params
         self.weight_decay = weight_decay
@@ -105,7 +150,7 @@ class MYGCN (Model):
         # initialize metrics here
         self.aupr_score = 0
         self.auroc_score = 0
-    
+
         # training, prediction and loss functions
         self.build()
 
@@ -122,7 +167,8 @@ class MYGCN (Model):
                                                   dropout=True,
                                                   sparse_inputs=sparse_layer,
                                                   name='gclayer_{}'.format(l+1),
-                                                  logging=self.logging)
+                                                  logging=self.logging,
+                                                  sparse_network=self.sparse_network)
             )
             inp_dim = self.hidden_dims[l]
         # add last layer
@@ -134,7 +180,8 @@ class MYGCN (Model):
                                               dropout=True,
                                               sparse_inputs=False,
                                               name='gclayer_{}'.format(layer_n),
-                                              logging=self.logging)
+                                              logging=self.logging,
+                                              sparse_network=self.sparse_network)
         )
 
     def _loss(self):

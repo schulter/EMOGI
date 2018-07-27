@@ -6,6 +6,8 @@ import tensorflow as tf
 import gcn.utils
 import utils
 from my_gcn import MYGCN
+import interpretation
+
 from scipy.sparse import lil_matrix
 import scipy.sparse as sp
 import time
@@ -88,97 +90,6 @@ def load_hdf_data(path, network_name='network', feature_name='features'):
     return network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names
 
 
-def get_color_dataframe(node_names, predictions, y_train, y_test):
-    labels_df = pd.DataFrame(node_names, index=node_names[:, 0], columns=[
-                             'ID', 'name']).drop('ID', axis=1)
-    labels_df['label'] = (y_train[:, 0] | y_test[:, 0])
-    labels_df['train_label'] = y_train[:, 0]
-    labels_df['test_label'] = y_test[:, 0]
-    labels_df['prediction'] = predictions[:, 0] >= 0.5
-    labels_df['color'] = 'gray'
-    labels_df.loc[labels_df.prediction == 1, 'color'] = 'blue'
-    labels_df.loc[labels_df.train_label == 1, 'color'] = 'green'
-    labels_df.loc[labels_df.test_label == 1, 'color'] = 'red'
-    return labels_df
-
-
-def plot_weights(sess, model, dir_name):
-    for var in model.vars:
-        layer_num = int(var.split('/')[1].strip().split('_')[1])
-        # read weight matrix from TF
-        weight_mat = model.vars[var].eval(session=sess)
-        feature_size, embed_size = weight_mat.shape
-
-        # assign feature names (either experiments or embeddings from prev layer)
-        if layer_num == 1:
-            feature_names = ['Pam3T16', 'Pam3T8', 'Pam3T16.1',
-                             'Pam3T8.1', 'Pam3T16.2', 'Pam3T8.2',
-                             'ControlT8', 'ControlT16', 'ControlT8.1',
-                             'ControlT16.1', 'ControlT8.2', 'ControlT16.2',
-                             'gfpmT8', 'gfpmT16', 'gfpmT8.1', 'gfpmT16.1',
-                             'gfpmT8.2', 'gfpmT16.2', 'gfppT8', 'gfppT16',
-                             'gfppT8.1', 'gfppT16.1', 'gfppT8.2', 'gfppT16.2']
-        else:
-            feature_names = ['filter_{}'.format(
-                i) for i in range(feature_size)]
-
-        # plot figure itself
-        fig = plt.figure(figsize=(30, 20))
-        plt.gcf().subplots_adjust(left=0.2)
-        num_rows, num_cols = bestSplit(embed_size)
-        for i in range(embed_size):
-            if i > 1:
-                ax = plt.subplot(num_rows, num_cols, i+1, sharey=ax, sharex=ax)
-            else:
-                ax = plt.subplot(num_rows, num_cols, i+1)
-            plt.barh(np.arange(0, feature_size), weight_mat[:, i])
-            plt.yticks(np.arange(0, feature_size), feature_names)
-            #ax.set_yticklabels(feature_names, rotation=0)
-            if i % num_cols != 0:  # subplot not one of the left hand side
-                plt.setp(ax.get_yticklabels(), visible=False)
-            if i / num_rows < num_rows-1:  # subplot not in the last row
-                plt.setp(ax.get_xticklabels(), visible=False)
-        fig.savefig(os.path.join(dir_name, 'weights_{}.png'.format(
-            layer_num)), format='png', dpi=200)
-
-
-def plot_pca(sess, model, feed_dict, colors, dir_name):
-    print("Plotting TSNE for activaions...")
-    # assign color to the labels
-    node_names
-    layer_num = 0
-    for layer_act in model.activations:
-        if layer_num == 0:  # don't plot input distribution
-            layer_num += 1
-            continue
-        else:
-            activation = sess.run(layer_act, feed_dict=feed_dict)
-            if activation.shape[1] > 1:
-                embedding = PCA(n_components=2).fit_transform(activation)
-            else:
-                continue
-        fig = plt.figure(figsize=(14, 8))
-        plt.scatter(embedding[:, 0], embedding[:, 1],
-                    c=colors.color, alpha=0.7)
-        plt.xlabel('PCA Component 1')
-        plt.ylabel('PCA Component 2')
-        plt.title('PCA Plot: Hidden Layer {}'.format(layer_num))
-
-        # legend
-        pred_nodes = mpatches.Patch(color='blue', label='Predicted Node')
-        train_nodes = mpatches.Patch(color='green', label='Training Nodes')
-        test_nodes = mpatches.Patch(color='red', label='Test Nodes')
-        not_involved = mpatches.Patch(
-            color='gray', label='Not Predicted and not labeled')
-        plt.legend(handles=[pred_nodes, train_nodes, test_nodes, not_involved])
-
-        # save
-        fig.savefig(os.path.join(
-            dir_name, 'pca_{}.png'.format(layer_num)), dpi=300)
-        print("Plotted TSNE for layer {}".format(layer_num))
-        layer_num += 1
-
-
 def plot_roc_pr_curves(y_score, y_true, model_dir):
     # define y_true and y_score
     fpr, tpr, thresholds = roc_curve(y_true, y_score)
@@ -208,6 +119,14 @@ def plot_roc_pr_curves(y_score, y_true, model_dir):
     plt.title('Precision-Recall Curve on Train and Test')
     plt.legend()
     fig.savefig(os.path.join(model_dir, 'prec_recall.png'))
+
+
+def interpret_results(model_dir):
+    print ("Running feature interpretation for {}".format(model_dir))
+    genes = ["CEBPB", "CHD1", "CHD3", "CHD4", "TP53", "PADI4", "RBL2",
+             "BRCA1", "BRCA2", "NOTCH2", "NOTCH1", "MYOC", "ZNF24", "SIM1",
+             "HSP90AA1", "ARNT"]
+    interpretation.interpretation(model_dir, genes, os.path.join(model_dir, 'lrp'), True)
 
 
 def write_hyper_params(args, input_file, file_name):
@@ -455,13 +374,10 @@ if __name__ == "__main__":
                                               node_names[pred_idx, 1],
                                               predictions[pred_idx, 0])
                         )
-        # construct color DataFrame for PCA plots
-        colors = get_color_dataframe(node_names, predictions, y_train, y_test)
 
         # save hyper Parameters and plot
         write_hyper_params(args, input_data_path, os.path.join(
             save_path, 'hyper_params.txt'))
-        plot_weights(sess, model, save_path)
-        plot_pca(sess, model, test_dict, colors, save_path)
         plot_roc_pr_curves(
             predictions[test_mask == 1], y_test[test_mask == 1], save_path)
+        interpret_results(save_path)
