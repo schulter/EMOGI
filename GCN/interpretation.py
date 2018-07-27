@@ -48,11 +48,15 @@ def load_hdf_data(path, network_name='network', feature_name='features'):
         node_names = f['gene_names'][:]
         y_train = f['y_train'][:]
         train_mask = f['mask_train'][:]
+        if 'feature_names' in f:
+            feature_names = f['feature_names'][:]
+        else:
+            feature_names = None
         # y_test = f['y_test'][:]
         # test_mask = f['mask_test'][:]
         # y_val = f['y_val'][:]
         # val_mask = f['mask_val'][:]
-    return network, features, y_train, train_mask, node_names
+    return network, features, y_train, train_mask, node_names, feature_names
 
 
 def get_direct_neighbors(adj, node):
@@ -130,7 +134,8 @@ def save_plots(feature_names, idx_gene, features, feature_attr, node_names, most
     plt.close('all')
 
 
-def compute_and_summarize_LRP(de, model, idx_gene, placeholders, features, support, adj, node_names, out_dir, save_edge_lists):
+def compute_and_summarize_LRP(de, model, idx_gene, placeholders, features, support, adj, node_names, feature_names,
+                              out_dir, save_edge_lists):
     mask_gene = np.zeros((features.shape[0],1))
     mask_gene[idx_gene] = 1
     attributions = de.explain(method="elrp",
@@ -145,8 +150,8 @@ def compute_and_summarize_LRP(de, model, idx_gene, placeholders, features, suppo
     most_important = nodes_sorted[-15:][::-1]
     least_important = nodes_sorted[:15]
     # plots
-    feature_names = np.arange(features.shape[1])
-    save_plots(feature_names, idx_gene, features, attributions[0],
+    f_names = feature_names if not feature_names is None else np.arange(features.shape[1])
+    save_plots(f_names, idx_gene, features, attributions[0],
                node_names, most_important, least_important, out_dir)
     return most_important, least_important
 
@@ -161,7 +166,7 @@ def interpretation(model_dir, genes, out_dir, save_edge_lists=False):
     ckpt = tf.train.get_checkpoint_state(checkpoint_dir=model_dir)
 
     data = load_hdf_data(data_file, feature_name='features')
-    adj, features, y_train, train_mask, node_names = data
+    adj, features, y_train, train_mask, node_names, feature_names = data
     node_names = [x[1] for x in node_names]
     features = utils.preprocess_features(lil_matrix(features), sparse=False)
 
@@ -170,7 +175,7 @@ def interpretation(model_dir, genes, out_dir, save_edge_lists=False):
         support = utils.subtract_lower_support(support)
         num_supports = 1 + args["support"]
     else:
-        support = [sp.eye(adj.shape[0])]
+        support = [np.eye(adj.shape[0])]
         num_supports = 1
     
     placeholders = {
@@ -192,7 +197,7 @@ def interpretation(model_dir, genes, out_dir, save_edge_lists=False):
                           num_hidden_layers=len(args['hidden_dims']),
                           hidden_dims=args['hidden_dims'],
                           pos_loss_multiplier=args['loss_mul'],
-                          logging=False)
+                          logging=False, sparse=False)
             model.load(ckpt.model_checkpoint_path, sess)
 
             for gene in genes:
@@ -204,7 +209,7 @@ def interpretation(model_dir, genes, out_dir, save_edge_lists=False):
                 print("Now: {}".format(gene))
                 highest_attr, lowest_attr = compute_and_summarize_LRP(de, model, idx_gene, placeholders,
                                                                       features, support, adj, node_names,
-                                                                      out_dir, save_edge_lists)
+                                                                      feature_names, out_dir, save_edge_lists)
                 results_genes[gene] = (highest_attr, lowest_attr)
 
 
@@ -212,7 +217,7 @@ def main():
     # '../data/GCN/training/pancancer_meth_450k_1000bpprom/'
     # '../data/GCN/training/pancancer_tcgage/'
     # '../data/GCN/training/simulation_LRP_subsupport_all/'
-    interpretation(model_dir = '../data/GCN/training/pancancer_tcgage/',
+    interpretation(model_dir = '../data/GCN/training/pancancer_multiomics_meth1000_tcgage',
                    genes = ["CEBPB", "CHD1", "CHD3", "CHD4", "TP53", "PADI4", "RBL2", "BRCA1", "BRCA2", "NOTCH2", "NOTCH1",
                             "MYOC", "ZNF24", "SIM1", "HSP90AA1", "ARNT"],
                    out_dir = "tests_ge/",

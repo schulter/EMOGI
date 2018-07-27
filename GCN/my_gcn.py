@@ -39,6 +39,34 @@ class MyGraphConvolution(GraphConvolution):
                 tf.summary.scalar('min', tf.reduce_min(tensor))
                 tf.summary.histogram('histogram', tensor)
 
+
+    def _call(self, inputs):
+        x = inputs
+
+        # dropout
+        if self.sparse_inputs:
+            x = sparse_dropout(x, 1-self.dropout, self.num_features_nonzero)
+        else:
+            x = tf.nn.dropout(x, 1-self.dropout)
+
+        # convolve
+        supports = list()
+        for i in range(len(self.support)):
+            if not self.featureless:
+                pre_sup = dot(x, self.vars['weights_' + str(i)],
+                              sparse=self.sparse_inputs)
+            else:
+                pre_sup = self.vars['weights_' + str(i)]
+            support = dot(self.support[i], pre_sup, sparse=self.sparse_inputs)
+            supports.append(support)
+        output = tf.add_n(supports)
+
+        # bias
+        if self.bias:
+            output += self.vars['bias']
+        
+        return self.act(output)
+
     def __call__(self, inputs):
         with tf.name_scope(self.name):
             if self.logging and not self.sparse_inputs:
@@ -52,7 +80,7 @@ class MyGraphConvolution(GraphConvolution):
 class MYGCN (Model):
     def __init__(self, placeholders, input_dim, learning_rate=0.1,
                  num_hidden_layers=2, hidden_dims=[20, 40], pos_loss_multiplier=1,
-                 weight_decay=5e-4, **kwargs):
+                 weight_decay=5e-4, sparse=True, **kwargs):
         super(MYGCN, self).__init__(**kwargs)
 
         # some checks first
@@ -66,6 +94,7 @@ class MYGCN (Model):
         self.output_dim = placeholders['labels'].get_shape().as_list()[1]
         self.placeholders = placeholders
         self.optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
+        self.sparse_network = sparse
 
         # model params
         self.weight_decay = weight_decay
@@ -85,12 +114,13 @@ class MYGCN (Model):
         # add intermediate layers
         inp_dim = self.input_dim
         for l in range(self.num_hidden_layers):
+            sparse_layer = l==0 if self.sparse_network else False
             self.layers.append(MyGraphConvolution(input_dim=inp_dim,
                                                   output_dim=self.hidden_dims[l],
                                                   placeholders=self.placeholders,
                                                   act=tf.nn.relu,
                                                   dropout=True,
-                                                  sparse_inputs=l==0,
+                                                  sparse_inputs=sparse_layer,
                                                   name='gclayer_{}'.format(l+1),
                                                   logging=self.logging)
             )
