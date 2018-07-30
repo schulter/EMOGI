@@ -10,6 +10,7 @@ from deepexplain.tensorflow import DeepExplain
 sys.path.append(os.path.abspath('../GCN'))
 from my_gcn import MYGCN
 import utils
+import argparse
 
 
 def str_to_num(s):
@@ -163,6 +164,7 @@ def interpretation(model_dir, genes, out_dir, save_edge_lists=False):
         os.makedirs(out_dir)
     args, data_file = load_hyper_params(model_dir)
     print(data_file)
+
     ckpt = tf.train.get_checkpoint_state(checkpoint_dir=model_dir)
 
     data = load_hdf_data(data_file, feature_name='features')
@@ -176,50 +178,73 @@ def interpretation(model_dir, genes, out_dir, save_edge_lists=False):
     else:
         support = [np.eye(adj.shape[0])]
         num_supports = 1
-    
-    placeholders = {
-        'support': [tf.placeholder(tf.float32) for _ in range(num_supports)],
-        'features': tf.placeholder(tf.float32, shape=features.shape),
-        'labels': tf.placeholder(tf.float32, shape=(None, y_train.shape[1])),
-        'labels_mask': tf.placeholder(tf.int32),
-        'dropout': tf.placeholder_with_default(0., shape=()),
-        'num_features_nonzero': tf.placeholder(tf.int32)
-    }
 
-    results_genes = {}
-    with tf.Session() as sess:
-        with DeepExplain(session=sess) as de:
-            model = MYGCN(placeholders=placeholders,
-                          input_dim=features.shape[1],
-                          learning_rate=args['lr'],
-                          weight_decay=args['decay'],
-                          num_hidden_layers=len(args['hidden_dims']),
-                          hidden_dims=args['hidden_dims'],
-                          pos_loss_multiplier=args['loss_mul'],
-                          logging=False, sparse_network=False)
-            model.load(ckpt.model_checkpoint_path, sess)
+    with tf.device('/cpu:0'):
+        placeholders = {
+            'support': [tf.placeholder(tf.float32) for _ in range(num_supports)],
+            'features': tf.placeholder(tf.float32, shape=features.shape),
+            'labels': tf.placeholder(tf.float32, shape=(None, y_train.shape[1])),
+            'labels_mask': tf.placeholder(tf.int32),
+            'dropout': tf.placeholder_with_default(0., shape=()),
+            'num_features_nonzero': tf.placeholder(tf.int32)
+        }
 
-            for gene in genes:
-                try:
-                    idx_gene = node_names.index(gene)
-                except:
-                    print("Warning: '{}' not found in label list".format(gene))
-                    continue
-                print("Now: {}".format(gene))
-                highest_attr, lowest_attr = compute_and_summarize_LRP(de, model, idx_gene, placeholders,
-                                                                      features, support, adj, node_names,
-                                                                      feature_names, out_dir, save_edge_lists)
-                results_genes[gene] = (highest_attr, lowest_attr)
+        results_genes = {}
+        with tf.Session() as sess:
+            with DeepExplain(session=sess) as de:
+                model = MYGCN(placeholders=placeholders,
+                              input_dim=features.shape[1],
+                              learning_rate=args['lr'],
+                              weight_decay=args['decay'],
+                              num_hidden_layers=len(args['hidden_dims']),
+                              hidden_dims=args['hidden_dims'],
+                              pos_loss_multiplier=args['loss_mul'],
+                              logging=False, sparse_network=False)
+                model.load(ckpt.model_checkpoint_path, sess)
+
+                for gene in genes:
+                    try:
+                        idx_gene = node_names.index(gene)
+                    except:
+                        print("Warning: '{}' not found in label list".format(gene))
+                        continue
+                    print("Now: {}".format(gene))
+                    highest_attr, lowest_attr = compute_and_summarize_LRP(de, model, idx_gene, placeholders,
+                                                                          features, support, adj, node_names,
+                                                                          feature_names, out_dir, save_edge_lists)
+                    results_genes[gene] = (highest_attr, lowest_attr)
 
 
 def main():
-    # '../data/GCN/training/pancancer_meth_450k_1000bpprom/'
-    # '../data/GCN/training/pancancer_tcgage/'
-    # '../data/GCN/training/simulation_LRP_subsupport_all/'
-    interpretation(model_dir = '../data/GCN/training/pancancer_multiomics_methpromonly1000_tcgage',
-                   genes = ["NCK1", "ITGAX", "PAG1", "SH2B2", "CEBPB", "CHD1", "CHD3", "CHD4", "TP53", "PADI4", "RBL2", "BRCA1", "BRCA2", "NOTCH2", "NOTCH1",
-                            "MYOC", "ZNF24", "SIM1", "HSP90AA1", "ARNT"],
-                   out_dir = "tests_ge/",
+    parser = argparse.ArgumentParser(
+    description='Do LRP interpretation on a given trained model')
+    parser.add_argument('-m', '--modeldir', help='Path to the trained model directory',
+                        dest='model_dir',
+                        required=True,
+                        type=str
+                        )
+    parser.add_argument('-g', '--genes',
+                        help='List of gene symbols for which to do interpretation',
+                        nargs='+',
+                        dest='genes',
+                        default=None)
+    args = parser.parse_args()
+
+    # get some genes to do interpretation for
+    if args.genes is None:
+        genes = ["NCK1", "ITGAX", "PAG1", "SH2B2", "CEBPB", "CHD1", "CHD3", "CHD4",
+                 "TP53", "PADI4", "RBL2", "BRCA1", "BRCA2", "NOTCH2", "NOTCH1",
+                 "MYOC", "ZNF24", "SIM1", "HSP90AA1", "ARNT"]
+    else:
+        genes = args.genes
+    
+    # create the lrp subdir if neccessary
+    out_dir = os.path.join(args.model_dir, 'lrp')
+    if not os.path.isdir(out_dir):
+        os.mkdir(out_dir)
+    interpretation(model_dir=args.model_dir,
+                   genes=genes,
+                   out_dir=out_dir,
                    save_edge_lists = True)
 
 
