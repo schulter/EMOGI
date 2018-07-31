@@ -198,21 +198,21 @@ class MYGCN (Model):
             tf.summary.scalar('Loss', self.loss)
 
     def _accuracy(self):
-        self.accuracy, update_op_acc = self.masked_accuracy(self.outputs,
-                                                            self.placeholders['labels'],
-                                                            self.placeholders['labels_mask'])
-        self.aupr_score, update_op_pr = self.masked_auc_score(self.outputs,
-                                                              self.placeholders['labels'],
-                                                              self.placeholders['labels_mask'],
-                                                              curve='PR')
-        self.auroc_score, update_op_roc = self.masked_auc_score(self.outputs,
-                                                                self.placeholders['labels'],
-                                                                self.placeholders['labels_mask'],
-                                                                curve='ROC')
+        _, self.accuracy = self.masked_accuracy(self.outputs,
+                                                self.placeholders['labels'],
+                                                self.placeholders['labels_mask'])
+        _, self.aupr_score = self.masked_auc_score(self.outputs,
+                                                   self.placeholders['labels'],
+                                                   self.placeholders['labels_mask'],
+                                                   curve='PR')
+        _, self.auroc_score = self.masked_auc_score(self.outputs,
+                                                    self.placeholders['labels'],
+                                                    self.placeholders['labels_mask'],
+                                                    curve='ROC')
         if self.logging:
-            tf.summary.scalar('ACC', update_op_acc)
-            tf.summary.scalar('AUPR', update_op_pr)
-            tf.summary.scalar('AUROC', update_op_roc)
+            tf.summary.scalar('ACC', self.accuracy)
+            tf.summary.scalar('AUPR', self.aupr_score)
+            tf.summary.scalar('AUROC', self.auroc_score)
 
 
     def masked_softmax_cross_entropy_weight(self, scores, labels, mask):
