@@ -6,7 +6,7 @@ import tensorflow as tf
 import gcn.utils
 import utils
 from my_gcn import MYGCN
-import interpretation
+#import interpretation
 
 from scipy.sparse import lil_matrix
 import scipy.sparse as sp
@@ -306,24 +306,23 @@ if __name__ == "__main__":
             train_writer.add_summary(outs[5], epoch)
             train_writer.flush()
 
-            # Print results
-            if epoch % 5 == 0 or epoch-1 == args.epochs:
+            # Print validation accuracy once in a while
+            if epoch % 10 == 0 or epoch-1 == args.epochs:
                 d = gcn.utils.construct_feed_dict(features, support, y_test,
                                                   test_mask, placeholders)
-                # loss, acc, aupr, auroc = sess.run([model.loss, model.accuracy,
-                #                                   model.aupr_score, model.auroc_score],
-                #                                  feed_dict=d)
+                loss, acc, aupr, auroc = sess.run([model.loss, model.accuracy,
+                                                  model.aupr_score, model.auroc_score],
+                                                  feed_dict=d)
                 summary = sess.run(merged, feed_dict=d)
 
                 test_writer.add_summary(summary, epoch)
                 test_writer.flush()
                 val_acc = sess.run(model.accuracy, feed_dict=d)
                 print("Epoch:", '%04d' % (epoch + 1),
-                      "Train Loss=", "{:.5f}".format(outs[1]),
-                      "Train Acc=", "{:.5f}".format(outs[2]),
-                      "Train AUROC={:.5f}".format(outs[3]),
-                      "Train AUPR: {:.5f}".format(outs[4]),
-                      "Val Acc=", "{:.5f}".format(val_acc))
+                      "Test Loss=", "{:.5f}".format(loss),
+                      "Test Acc=", "{:.5f}".format(acc),
+                      "Test AUROC={:.5f}".format(aupr),
+                      "Test AUPR: {:.5f}".format(auroc))
             else:
                 print("Epoch:", '%04d' % (epoch + 1),
                       "Train Loss=", "{:.5f}".format(outs[1]),
@@ -380,4 +379,4 @@ if __name__ == "__main__":
             save_path, 'hyper_params.txt'))
         plot_roc_pr_curves(
             predictions[test_mask == 1], y_test[test_mask == 1], save_path)
-        interpret_results(save_path)
+        #interpret_results(save_path)
