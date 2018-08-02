@@ -10,6 +10,7 @@ from deepexplain.tensorflow import DeepExplain
 sys.path.append(os.path.abspath('../GCN'))
 from my_gcn import MYGCN
 import utils
+from time import time
 import argparse
 
 
@@ -260,35 +261,38 @@ def summarize_featurewise(model_dir, out_dir):
 
     summary = np.empty((features.shape))
     with tf.device('/cpu:0'):
-        for idx, gene_name in enumerate(node_names):
-            print(idx, gene_name)
-            ckpt = tf.train.get_checkpoint_state(checkpoint_dir=model_dir)
-            placeholders = {
-                'support': [tf.placeholder(tf.float32) for _ in range(num_supports)],
-                'features': tf.placeholder(tf.float32, shape=features.shape),
-                'labels': tf.placeholder(tf.float32, shape=(None, y_train.shape[1])),
-                'labels_mask': tf.placeholder(tf.int32),
-                'dropout': tf.placeholder_with_default(0., shape=()),
-                'num_features_nonzero': tf.placeholder(tf.int32)
-            }
+        batch_size = 20
+        for batch in range(0, len(node_names), batch_size):
             with tf.Session() as sess:
+                ckpt = tf.train.get_checkpoint_state(checkpoint_dir=model_dir)
+                placeholders = {
+                    'support': [tf.placeholder(tf.float32) for _ in range(num_supports)],
+                    'features': tf.placeholder(tf.float32, shape=features.shape),
+                    'labels': tf.placeholder(tf.float32, shape=(None, y_train.shape[1])),
+                    'labels_mask': tf.placeholder(tf.int32),
+                    'dropout': tf.placeholder_with_default(0., shape=()),
+                    'num_features_nonzero': tf.placeholder(tf.int32)
+                }
                 with DeepExplain(session=sess) as de:
                     model = MYGCN(placeholders=placeholders,
-                                input_dim=features.shape[1],
-                                learning_rate=args['lr'],
-                                weight_decay=args['decay'],
-                                num_hidden_layers=len(args['hidden_dims']),
-                                hidden_dims=args['hidden_dims'],
-                                pos_loss_multiplier=args['loss_mul'],
-                                logging=False, sparse_network=False)
+                                  input_dim=features.shape[1],
+                                  learning_rate=args['lr'],
+                                  weight_decay=args['decay'],
+                                  num_hidden_layers=len(args['hidden_dims']),
+                                  hidden_dims=args['hidden_dims'],
+                                  pos_loss_multiplier=args['loss_mul'],
+                                  logging=False, sparse_network=False)
                     model.load(ckpt.model_checkpoint_path, sess)
-                    mask_gene = np.zeros((features.shape[0],1))
-                    mask_gene[idx] = 1
-                    attributions = de.explain(method="elrp",
-                                    T=model.outputs * mask_gene,
-                                    X=[placeholders['features'], *placeholders["support"]],
-                                    xs=[features, *support])
-                    summary[idx,:] = attributions[0][idx,:]
+                    for idx in range(batch, min(batch+batch_size, len(node_names))):
+                        start = time()
+                        mask_gene = np.zeros((features.shape[0],1))
+                        mask_gene[idx] = 1
+                        attributions = de.explain(method="elrp",
+                                            T=model.outputs * mask_gene,
+                                            X=[placeholders['features'], *placeholders["support"]],
+                                            xs=[features, *support])
+                        summary[idx,:] = attributions[0][idx,:]
+                        print(idx, node_names[idx], time()-start, "seconds")
             tf.reset_default_graph()
     np.save(out_dir + "lrp_matrix.npy", summary)
     # plot most important genes for each feature
