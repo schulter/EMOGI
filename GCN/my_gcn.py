@@ -125,7 +125,7 @@ class MyGraphConvolution(GraphConvolution):
 class MYGCN (Model):
     def __init__(self, placeholders, input_dim, learning_rate=0.1,
                  num_hidden_layers=2, hidden_dims=[20, 40], pos_loss_multiplier=1,
-                 weight_decay=5e-4, sparse_network=True, **kwargs):
+                 weight_decay=5e-4, patience=None, sparse_network=True, **kwargs):
         super(MYGCN, self).__init__(**kwargs)
 
         # some checks first
@@ -198,6 +198,9 @@ class MYGCN (Model):
             tf.summary.scalar('Loss', self.loss)
 
     def _accuracy(self):
+        pass
+    """
+    def _accuracy(self):
         _, self.accuracy = self.masked_accuracy(self.outputs,
                                                 self.placeholders['labels'],
                                                 self.placeholders['labels_mask'])
@@ -209,11 +212,7 @@ class MYGCN (Model):
                                                     self.placeholders['labels'],
                                                     self.placeholders['labels_mask'],
                                                     curve='ROC')
-        if self.logging:
-            tf.summary.scalar('ACC', self.accuracy)
-            tf.summary.scalar('AUPR', self.aupr_score)
-            tf.summary.scalar('AUROC', self.auroc_score)
-
+    """
 
     def masked_softmax_cross_entropy_weight(self, scores, labels, mask):
         """Softmax cross-entropy loss with masking and weight for positives."""
@@ -231,6 +230,7 @@ class MYGCN (Model):
         loss *= mask
         return tf.reduce_mean(loss)
 
+    """
     def masked_accuracy(self, scores, labels, mask):
         if scores.shape[1] > 1:
             preds = tf.nn.softmax(scores)
@@ -242,10 +242,35 @@ class MYGCN (Model):
             return tf.reduce_mean(accuracy_all), tf.reduce_mean(accuracy_all)
         else:
             prediction = tf.greater(tf.nn.sigmoid(scores), 0.5)
-            return tf.metrics.accuracy(labels=labels,
-                                       predictions=prediction,
-                                       weights=mask)
-
+            correct_prediction = tf.equal(prediction, tf.cast(labels, dtype=tf.bool))
+            accuracy_all = tf.cast(correct_prediction, tf.float32)
+            mask = tf.cast(mask, dtype=tf.float32)
+            mask /= tf.reduce_mean(mask)
+            accuracy_all *= mask
+            return tf.reduce_mean(accuracy_all), tf.reduce_mean(accuracy_all)
+    """
+    def get_performance_metrics(self):
+        with tf.variable_scope("evaluation"):
+            pred = self.predict()
+            _, acc = tf.metrics.accuracy(self.placeholders['labels'],
+                                         tf.greater(pred, 0.5))
+            _, auroc = tf.metrics.auc(labels=self.placeholders['labels'],
+                                    predictions=pred,
+                                    weights=self.placeholders['labels_mask'],
+                                    curve='ROC'
+                                    )
+            _, aupr = tf.metrics.auc(labels=self.placeholders['labels'],
+                                    predictions=pred,
+                                    weights=self.placeholders['labels_mask'],
+                                    curve='PR',
+                                    summation_method='careful_interpolation'
+                                    )
+            if self.logging:
+                tf.summary.scalar('LOSS_VAL', self.loss)
+                tf.summary.scalar('ACC_VAL', acc)
+                tf.summary.scalar('AUPR_VAL', aupr)
+                tf.summary.scalar('AUROC_VAL',auroc)
+        return self.loss, acc, aupr, auroc
 
     def masked_auc_score(self, scores, labels, mask, curve='PR'):
         if scores.shape[1] > 1:
@@ -255,7 +280,8 @@ class MYGCN (Model):
         aupr, update_op = tf.metrics.auc(labels=labels[:,0],
                                          predictions=prediction[:,0],
                                          weights=mask,
-                                         curve=curve
+                                         curve=curve,
+                                         summation_method='careful_interpolation'
                                          )
         return aupr, update_op
 

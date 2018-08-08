@@ -1,6 +1,5 @@
 import argparse
 import os
-import h5py
 from datetime import datetime
 import tensorflow as tf
 import gcn.utils
@@ -17,9 +16,6 @@ import matplotlib.patches as mpatches
 
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
-from sklearn.metrics import roc_auc_score
-from sklearn.metrics import roc_curve
-from sklearn.metrics import precision_recall_curve, average_precision_score
 
 import numpy as np
 import pandas as pd
@@ -29,104 +25,13 @@ import pickle as pkl
 import networkx as nx
 
 
-def bestSplit(x): return (round(math.sqrt(x)),
-                          math.ceil(x / round(math.sqrt(x))))
-
-
-def load_cora():
-    """Load data."""
-    names = ['x', 'y', 'tx', 'ty', 'allx', 'ally', 'graph']
-    objects = []
-    for i in range(len(names)):
-        with open("../../gcn/gcn/data/ind.cora.{}".format(names[i]), 'rb') as f:
-            objects.append(pkl.load(f, encoding='latin1'))
-    x, y, tx, ty, allx, ally, graph = tuple(objects)
-    test_idx_reorder = gcn.utils.parse_index_file(
-        "../../gcn/gcn/data/ind.cora.test.index")
-    test_idx_range = np.sort(test_idx_reorder)
-
-    features = sp.vstack((allx, tx)).tolil()
-    features[test_idx_reorder, :] = features[test_idx_range, :]
-    adj = nx.adjacency_matrix(nx.from_dict_of_lists(graph))
-
-    labels = np.vstack((ally, ty))
-    labels[test_idx_reorder, :] = labels[test_idx_range, :]
-
-    idx_test = test_idx_range.tolist()
-    idx_train = range(len(y))
-    idx_val = range(len(y), len(y)+500)
-
-    train_mask = gcn.utils.sample_mask(idx_train, labels.shape[0])
-    val_mask = gcn.utils.sample_mask(idx_val, labels.shape[0])
-    test_mask = gcn.utils.sample_mask(idx_test, labels.shape[0])
-
-    y_train = np.zeros(labels.shape)
-    y_val = np.zeros(labels.shape)
-    y_test = np.zeros(labels.shape)
-    y_train[train_mask, :] = labels[train_mask, :]
-    y_val[val_mask, :] = labels[val_mask, :]
-    y_test[test_mask, :] = labels[test_mask, :]
-
-    return adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask
-
-
-def load_hdf_data(path, network_name='network', feature_name='features'):
-    with h5py.File(path, 'r') as f:
-        network = f[network_name][:]
-        features = f[feature_name][:]
-        node_names = f['gene_names'][:]
-        y_train = f['y_train'][:]
-        y_test = f['y_test'][:]
-        if 'y_val' in f:
-            y_val = f['y_val'][:]
-        else:
-            y_val = None
-        train_mask = f['mask_train'][:]
-        test_mask = f['mask_test'][:]
-        if 'mask_val' in f:
-            val_mask = f['mask_val'][:]
-        else:
-            val_mask = None
-    return network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names
-
-
-def plot_roc_pr_curves(y_score, y_true, model_dir):
-    # define y_true and y_score
-    fpr, tpr, thresholds = roc_curve(y_true, y_score)
-    roc_auc = roc_auc_score(y_true, y_score)
-
-    # plot ROC curve
-    fig = plt.figure(figsize=(14, 8))
-    plt.plot(fpr, tpr, lw=3, label='AUC = {0:.2f}'.format(roc_auc))
-    plt.plot([0, 1], [0, 1], color='gray', lw=3,
-             linestyle='--', label='Random')
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title('ROC Curve Prediction on Train and Test')
-    plt.legend(loc='lower right')
-    fig.savefig(os.path.join(model_dir, 'roc_curve.png'))
-
-    # plot PR-Curve
-    pr, rec, thresholds = precision_recall_curve(y_true, y_score)
-    aupr = average_precision_score(y_true, y_score)
-    fig = plt.figure(figsize=(14, 8))
-    plt.plot(rec, pr, lw=3, label='GCN (AUPR = {0:.2f})'.format(aupr))
-    random_y = y_true.sum() / (y_true.sum() + y_true.shape[0] - y_true.sum())
-    plt.plot([0, 1], [random_y, random_y], color='gray', lw=3, linestyle='--',
-             label='Random')
-    plt.xlabel('Precision')
-    plt.ylabel('Recall')
-    plt.title('Precision-Recall Curve on Train and Test')
-    plt.legend()
-    fig.savefig(os.path.join(model_dir, 'prec_recall.png'))
-
-
 def interpret_results(model_dir):
-    print ("Running feature interpretation for {}".format(model_dir))
+    print("Running feature interpretation for {}".format(model_dir))
     genes = ["CEBPB", "CHD1", "CHD3", "CHD4", "TP53", "PADI4", "RBL2",
              "BRCA1", "BRCA2", "NOTCH2", "NOTCH1", "MYOC", "ZNF24", "SIM1",
              "HSP90AA1", "ARNT"]
-    interpretation.interpretation(model_dir, genes, os.path.join(model_dir, 'lrp'), True)
+    interpretation.interpretation(
+        model_dir, genes, os.path.join(model_dir, 'lrp'), True)
 
 
 def write_hyper_params(args, input_file, file_name):
@@ -178,7 +83,6 @@ def parse_args():
                         )
     parser.add_argument('-d', '--data', help='Path to HDF5 container with data',
                         dest='data',
-                        default=None,
                         type=str
                         )
     args = parser.parse_args()
@@ -207,19 +111,44 @@ def fits_on_gpu(adj, features, hidden_dims, support):
     return total_size < 11*1024*1024*1024  # 12 GB memory (only take 11)
 
 
+def predict(sess, model, features, support, labels, mask, placeholders):
+    feed_dict_pred = gcn.utils.construct_feed_dict(
+        features, support, labels, mask, placeholders)
+    pred = sess.run(model.predict(), feed_dict=feed_dict_pred)
+    return pred
+
+class EarlyStoppingMonitor():
+    def __init__(self, patience):
+        self.patience = patience
+        self.epochs_without_improvement = 0
+        self.best_loss = np.inf
+    
+    def should_stop(self, loss):
+        if self.best_loss <= loss: # no improvement
+            self.epochs_without_improvement += 1
+            print (loss, self.best_loss)
+        else: # improvement
+            self.epochs_without_improvement = 0
+            self.best_loss = loss
+
+        # shall be stop?
+        print ("epochs without improvement: {}".format(self.epochs_without_improvement))
+        if self.epochs_without_improvement >= self.patience:
+            return True
+        else:
+            return False
+
+
 if __name__ == "__main__":
     args = parse_args()
-    if args.data is None or not args.data.endswith('.h5'):
-        print("No path to HDF5 data container provided or data is not hdf5. Exit now.")
+    if not args.data.endswith('.h5'):
+        print("Data is not hdf5 container. Exit now.")
         sys.exit(-1)
 
     input_data_path = args.data
-    data = load_hdf_data(input_data_path, feature_name='features')
+    data = utils.load_hdf_data(input_data_path, feature_name='features')
     adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names = data
     print("Read data from: {}".format(input_data_path))
-    #data = load_cora()
-    #adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = data
-    #node_names = np.array([[str(i), str(i)] for i in np.arange(features.shape[0])])
     num_nodes = adj.shape[0]
     num_feat = features.shape[1]
     if num_feat > 1:
@@ -232,9 +161,8 @@ if __name__ == "__main__":
     poly_support = args.support
     if poly_support > 0:
         support = gcn.utils.chebyshev_polynomials(adj, poly_support)
-        #support = utils.subtract_lower_support(support)
         num_supports = 1 + poly_support
-    else: # support is 0, don't use the network
+    else:  # support is 0, don't use the network
         support = [sp.eye(adj.shape[0])]
         num_supports = 1
 
@@ -249,10 +177,6 @@ if __name__ == "__main__":
     }
     hidden_dims = [int(x) for x in args.hidden_dims]
 
-    # create session, train and save afterwards
-    #device = 1 if fits_on_gpu(adj, features, hidden_dims, poly_support) else 0
-    #print (device)
-    #config = tf.ConfigProto(device_count={'GPU': device})
     with tf.Session() as sess:
         model = MYGCN(placeholders=placeholders,
                       input_dim=features[2][1],
@@ -263,6 +187,11 @@ if __name__ == "__main__":
                       pos_loss_multiplier=args.loss_mul,
                       logging=True)
 
+        performance_ops = model.get_performance_metrics()
+        running_avg_vars = tf.get_collection(tf.GraphKeys.LOCAL_VARIABLES,
+                                             scope="evaluation")
+        metric_reset_op = tf.variables_initializer(var_list=running_avg_vars)
+        early_stopping_mon = EarlyStoppingMonitor(patience=10)
         # create model directory for saving
         root_dir = '../data/GCN/training'
         if not os.path.isdir(root_dir):  # in case training root doesn't exist
@@ -274,24 +203,10 @@ if __name__ == "__main__":
 
         # initialize writers for TF logs
         merged = tf.summary.merge_all()
+        val_summary = tf.summary.merge_all(scope='evaluation')
         config = projector.ProjectorConfig()
         train_writer = tf.summary.FileWriter(os.path.join(save_path, 'train'))
         test_writer = tf.summary.FileWriter(os.path.join(save_path, 'test'))
-
-        # helper functions for evaluation at training time
-        def evaluate(features, support, labels, mask, placeholders):
-            d = gcn.utils.construct_feed_dict(
-                features, support, labels, mask, placeholders)
-            loss, acc, aupr, auroc = sess.run([model.loss, model.accuracy,
-                                               model.aupr_score, model.auroc_score],
-                                              feed_dict=d)
-            return loss, acc, aupr, auroc
-
-        def predict(features, support, labels, mask, placeholders):
-            feed_dict_pred = gcn.utils.construct_feed_dict(
-                features, support, labels, mask, placeholders)
-            pred = sess.run(model.predict(), feed_dict=feed_dict_pred)
-            return pred
 
         sess.run(tf.group(tf.global_variables_initializer(),
                           tf.local_variables_initializer()))
@@ -300,83 +215,67 @@ if __name__ == "__main__":
                                                       train_mask, placeholders)
             feed_dict.update({placeholders['dropout']: args.dropout})
             # Training step
-            outs = sess.run([model.opt_op, model.loss, model.accuracy,
-                             model.auroc_score, model.aupr_score, merged],
-                            feed_dict=feed_dict)
-            train_writer.add_summary(outs[5], epoch)
+            #_ = sess.run(metric_reset_op)
+            _ = sess.run(model.opt_op, feed_dict=feed_dict)
+            train_loss, train_acc, train_aupr, train_auroc = sess.run(performance_ops,
+                                                                      feed_dict=feed_dict)
+            s = sess.run(merged, feed_dict=feed_dict)
+            train_writer.add_summary(s, epoch)
             train_writer.flush()
 
             # Print validation accuracy once in a while
             if epoch % 10 == 0 or epoch-1 == args.epochs:
                 d = gcn.utils.construct_feed_dict(features, support, y_test,
                                                   test_mask, placeholders)
-                loss, acc, aupr, auroc = sess.run([model.loss, model.accuracy,
-                                                  model.aupr_score, model.auroc_score],
-                                                  feed_dict=d)
-                summary = sess.run(merged, feed_dict=d)
-
-                test_writer.add_summary(summary, epoch)
+                sess.run(metric_reset_op)
+                val_loss, val_acc, val_aupr, val_auroc = sess.run(performance_ops,
+                                                                  feed_dict=d)
+                s = sess.run(merged, feed_dict=d)
+                test_writer.add_summary(s, epoch)
                 test_writer.flush()
-                val_acc = sess.run(model.accuracy, feed_dict=d)
                 print("Epoch:", '%04d' % (epoch + 1),
-                      "Test Loss=", "{:.5f}".format(loss),
-                      "Test Acc=", "{:.5f}".format(acc),
-                      "Test AUROC={:.5f}".format(aupr),
-                      "Test AUPR: {:.5f}".format(auroc))
-            else:
-                print("Epoch:", '%04d' % (epoch + 1),
-                      "Train Loss=", "{:.5f}".format(outs[1]),
-                      "Train Acc=", "{:.5f}".format(outs[2]),
-                      "Train AUROC={:.5f}".format(outs[3]),
-                      "Train AUPR: {:.5f}".format(outs[4]))
+                      "Test Loss=", "{:.5f}".format(val_loss),
+                      "Test Acc=", "{:.5f}".format(val_acc),
+                      "Test AUROC={:.5f}".format(val_auroc),
+                      "Test AUPR: {:.5f}".format(val_aupr))
+                if early_stopping_mon.should_stop(val_loss):
+                    print ("Early Stopping")
+                    break
+            print("Epoch:", '%04d' % (epoch + 1),
+                    "Train Loss=", "{:.5f}".format(train_loss),
+                    "Train Acc=", "{:.5f}".format(train_acc),
+                    "Train AUROC={:.5f}".format(train_auroc),
+                    "Train AUPR: {:.5f}".format(train_aupr))
         print("Optimization Finished!")
 
-        # Testing
-        test_cost, test_acc, test_aupr, test_auroc = evaluate(
-            features, support, y_test, test_mask, placeholders)
-        print("Test set results:", "loss=", "{:.5f}".format(test_cost),
-              "accuracy=", "{:.5f}".format(
-                  test_acc), "aupr=", "{:.5f}".format(test_aupr),
-              "auroc=", "{:.5f}".format(test_auroc))
-
-        # add embeddings. This is not optimal here. TODO: Add embeddings in class
-        config = projector.ProjectorConfig()
-        i = 0
-        for output in model.activations[1:]:
-            test_dict = gcn.utils.construct_feed_dict(
-                features, support, y_test, test_mask, placeholders)
-            act = output.eval(feed_dict=test_dict, session=sess)
-            embedding_var = tf.Variable(
-                act, name='activation_layer_{}'.format(i))
-            sess.run(embedding_var.initializer)
-            embedding = config.embeddings.add()
-            embedding.tensor_name = embedding_var.name
-            i += 1
-        projector.visualize_embeddings(train_writer, config)
-
-        # predict node classification
-        predictions = predict(features, support, y_test,
-                              test_mask, placeholders)
-        print(predictions.shape)
         # save model
         model_save_path = os.path.join(save_path, 'model.ckpt')
         print("Save model to {}".format(model_save_path))
         path = model.save(model_save_path, sess=sess)
-        #saver = tf.train.Saver()
-        #path = saver.save(sess, model_save_path)
 
-        # save predictions
-        with open(os.path.join(save_path, 'predictions.tsv'), 'w') as f:
-            f.write('ID\tName\tProb_pos\n')
-            for pred_idx in range(predictions.shape[0]):
-                f.write('{}\t{}\t{}\n'.format(node_names[pred_idx, 0],
-                                              node_names[pred_idx, 1],
-                                              predictions[pred_idx, 0])
-                        )
+        # Testing
+        d = utils.construct_feed_dict(features, support, y_test, test_mask, placeholders)
+        test_performance = sess.run(performance_ops, feed_dict=d)
+        print("Test set results:", "loss=", "{:.5f}".format(test_performance[0]),
+              "accuracy=", "{:.5f}".format(
+                  test_performance[1]), "aupr=", "{:.5f}".format(test_performance[2]),
+              "auroc=", "{:.5f}".format(test_performance[3]))
 
-        # save hyper Parameters and plot
-        write_hyper_params(args, input_data_path, os.path.join(
-            save_path, 'hyper_params.txt'))
-        plot_roc_pr_curves(
-            predictions[test_mask == 1], y_test[test_mask == 1], save_path)
-        #interpret_results(save_path)
+        # predict all nodes (result from algorithm)
+        predictions = predict(sess, model, features, support, y_test,
+                              test_mask, placeholders)
+
+    # save predictions
+    with open(os.path.join(save_path, 'predictions.tsv'), 'w') as f:
+        f.write('ID\tName\tProb_pos\n')
+        for pred_idx in range(predictions.shape[0]):
+            f.write('{}\t{}\t{}\n'.format(node_names[pred_idx, 0],
+                                            node_names[pred_idx, 1],
+                                            predictions[pred_idx, 0])
+                    )
+    # save hyper Parameters and plot
+    write_hyper_params(args, input_data_path, os.path.join(
+        save_path, 'hyper_params.txt'))
+    utils.plot_roc_pr_curves(
+        predictions[test_mask == 1], y_test[test_mask == 1], save_path)
+    # interpret_results(save_path)
