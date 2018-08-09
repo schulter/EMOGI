@@ -125,7 +125,7 @@ class MyGraphConvolution(GraphConvolution):
 class MYGCN (Model):
     def __init__(self, placeholders, input_dim, learning_rate=0.1,
                  num_hidden_layers=2, hidden_dims=[20, 40], pos_loss_multiplier=1,
-                 weight_decay=5e-4, patience=None, sparse_network=True, **kwargs):
+                 weight_decay=5e-4, sparse_network=True, **kwargs):
         super(MYGCN, self).__init__(**kwargs)
 
         # some checks first
@@ -146,10 +146,6 @@ class MYGCN (Model):
         self.pos_loss_multiplier = pos_loss_multiplier
         self.num_hidden_layers = num_hidden_layers
         self.hidden_dims = hidden_dims
-
-        # initialize metrics here
-        self.aupr_score = 0
-        self.auroc_score = 0
 
         # training, prediction and loss functions
         self.build()
@@ -194,25 +190,9 @@ class MYGCN (Model):
                                                               self.placeholders['labels'],
                                                               self.placeholders['labels_mask']
                                                               )
-        if self.logging:
-            tf.summary.scalar('Loss', self.loss)
 
     def _accuracy(self):
         pass
-    """
-    def _accuracy(self):
-        _, self.accuracy = self.masked_accuracy(self.outputs,
-                                                self.placeholders['labels'],
-                                                self.placeholders['labels_mask'])
-        _, self.aupr_score = self.masked_auc_score(self.outputs,
-                                                   self.placeholders['labels'],
-                                                   self.placeholders['labels_mask'],
-                                                   curve='PR')
-        _, self.auroc_score = self.masked_auc_score(self.outputs,
-                                                    self.placeholders['labels'],
-                                                    self.placeholders['labels_mask'],
-                                                    curve='ROC')
-    """
 
     def masked_softmax_cross_entropy_weight(self, scores, labels, mask):
         """Softmax cross-entropy loss with masking and weight for positives."""
@@ -230,25 +210,6 @@ class MYGCN (Model):
         loss *= mask
         return tf.reduce_mean(loss)
 
-    """
-    def masked_accuracy(self, scores, labels, mask):
-        if scores.shape[1] > 1:
-            preds = tf.nn.softmax(scores)
-            correct_prediction = tf.equal(tf.argmax(preds, 1), tf.argmax(labels, 1))
-            accuracy_all = tf.cast(correct_prediction, tf.float32)
-            mask = tf.cast(mask, dtype=tf.float32)
-            mask /= tf.reduce_mean(mask)
-            accuracy_all *= mask
-            return tf.reduce_mean(accuracy_all), tf.reduce_mean(accuracy_all)
-        else:
-            prediction = tf.greater(tf.nn.sigmoid(scores), 0.5)
-            correct_prediction = tf.equal(prediction, tf.cast(labels, dtype=tf.bool))
-            accuracy_all = tf.cast(correct_prediction, tf.float32)
-            mask = tf.cast(mask, dtype=tf.float32)
-            mask /= tf.reduce_mean(mask)
-            accuracy_all *= mask
-            return tf.reduce_mean(accuracy_all), tf.reduce_mean(accuracy_all)
-    """
     def get_performance_metrics(self):
         with tf.variable_scope("evaluation"):
             pred = self.predict()
@@ -266,10 +227,10 @@ class MYGCN (Model):
                                     summation_method='careful_interpolation'
                                     )
             if self.logging:
-                tf.summary.scalar('LOSS_VAL', self.loss)
-                tf.summary.scalar('ACC_VAL', acc)
-                tf.summary.scalar('AUPR_VAL', aupr)
-                tf.summary.scalar('AUROC_VAL',auroc)
+                tf.summary.scalar('LOSS', self.loss)
+                tf.summary.scalar('ACC', acc)
+                tf.summary.scalar('AUPR', aupr)
+                tf.summary.scalar('AUROC',auroc)
         return self.loss, acc, aupr, auroc
 
     def masked_auc_score(self, scores, labels, mask, curve='PR'):

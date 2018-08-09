@@ -1,9 +1,8 @@
 import numpy as np
-import pickle as pkl
-import networkx as nx
+
 import scipy.sparse as sp
 from scipy.sparse.linalg.eigen.arpack import eigsh
-import sys, h5py, os
+import os
 from sklearn.metrics import roc_auc_score
 from sklearn.metrics import roc_curve
 from sklearn.metrics import precision_recall_curve, average_precision_score
@@ -25,46 +24,9 @@ def sample_mask(idx, l):
     return np.array(mask, dtype=np.bool)
 
 
-def load_cora():
-    """Load data."""
-    names = ['x', 'y', 'tx', 'ty', 'allx', 'ally', 'graph']
-    objects = []
-    for i in range(len(names)):
-        with open("../../gcn/gcn/data/ind.cora.{}".format(names[i]), 'rb') as f:
-            objects.append(pkl.load(f, encoding='latin1'))
-    x, y, tx, ty, allx, ally, graph = tuple(objects)
-    test_idx_reorder = gcn.utils.parse_index_file(
-        "../../gcn/gcn/data/ind.cora.test.index")
-    test_idx_range = np.sort(test_idx_reorder)
-
-    features = sp.vstack((allx, tx)).tolil()
-    features[test_idx_reorder, :] = features[test_idx_range, :]
-    adj = nx.adjacency_matrix(nx.from_dict_of_lists(graph))
-
-    labels = np.vstack((ally, ty))
-    labels[test_idx_reorder, :] = labels[test_idx_range, :]
-
-    idx_test = test_idx_range.tolist()
-    idx_train = range(len(y))
-    idx_val = range(len(y), len(y)+500)
-
-    train_mask = gcn.utils.sample_mask(idx_train, labels.shape[0])
-    val_mask = gcn.utils.sample_mask(idx_val, labels.shape[0])
-    test_mask = gcn.utils.sample_mask(idx_test, labels.shape[0])
-
-    y_train = np.zeros(labels.shape)
-    y_val = np.zeros(labels.shape)
-    y_test = np.zeros(labels.shape)
-    y_train[train_mask, :] = labels[train_mask, :]
-    y_val[val_mask, :] = labels[val_mask, :]
-    y_test[test_mask, :] = labels[test_mask, :]
-
-    return adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask
-
-
 def plot_roc_pr_curves(y_score, y_true, model_dir):
     # define y_true and y_score
-    fpr, tpr, thresholds = roc_curve(y_true, y_score)
+    fpr, tpr, _ = roc_curve(y_true, y_score)
     roc_auc = roc_auc_score(y_true, y_score)
 
     # plot ROC curve
@@ -79,7 +41,7 @@ def plot_roc_pr_curves(y_score, y_true, model_dir):
     fig.savefig(os.path.join(model_dir, 'roc_curve.png'))
 
     # plot PR-Curve
-    pr, rec, thresholds = precision_recall_curve(y_true, y_score)
+    pr, rec, _ = precision_recall_curve(y_true, y_score)
     aupr = average_precision_score(y_true, y_score)
     fig = plt.figure(figsize=(14, 8))
     plt.plot(rec, pr, lw=3, label='GCN (AUPR = {0:.2f})'.format(aupr))
@@ -157,24 +119,6 @@ def construct_feed_dict(features, support, labels, labels_mask, placeholders):
     return feed_dict
 
 
-def load_hdf_data(path, network_name='network', feature_name='features'):
-    with h5py.File(path, 'r') as f:
-        network = f[network_name][:]
-        features = f[feature_name][:]
-        node_names = f['gene_names'][:]
-        y_train = f['y_train'][:]
-        y_test = f['y_test'][:]
-        if 'y_val' in f:
-            y_val = f['y_val'][:]
-        else:
-            y_val = None
-        train_mask = f['mask_train'][:]
-        test_mask = f['mask_test'][:]
-        if 'mask_val' in f:
-            val_mask = f['mask_val'][:]
-        else:
-            val_mask = None
-    return network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names
 
 
 def chebyshev_polynomials(adj, k, sparse=True, subtract_support=True):
@@ -215,3 +159,60 @@ def subtract_lower_support(polys):
         for j in range(0, i):
             polys[i][np.abs(polys[j]) > 0.0001] = 0
     return polys
+
+
+
+def fits_on_gpu(adj, features, hidden_dims, support):
+    """Determines if training should be done on the GPU or CPU.
+    """
+    total_size = 0
+    cur_dim = features[2][1]
+    n = features[2][0]
+    sp_adj = preprocess_adj(adj)
+    adj_size = np.prod(sp_adj[0].shape) + np.prod(sp_adj[1].shape)
+    print(adj_size, n)
+
+    for layer in range(len(hidden_dims)):
+        H_s = n * cur_dim
+        W_s = cur_dim * hidden_dims[layer]
+        total_size += (adj_size + H_s + W_s)*support
+        cur_dim = hidden_dims[layer]
+        print(H_s, W_s, total_size, cur_dim)
+    total_size *= 4  # assume 32 bits (4 bytes) per number
+
+    print(total_size, total_size < 11*1024*1024*1024)
+    return total_size < 11*1024*1024*1024  # 12 GB memory (only take 11)
+
+def get_support_matrices(adj, poly_support):
+    if poly_support > 0:
+        support = chebyshev_polynomials(adj, poly_support)
+        num_supports = 1 + poly_support
+    else:  # support is 0, don't use the network
+        support = [sp.eye(adj.shape[0])]
+        num_supports = 1
+    return support, num_supports
+
+class EarlyStoppingMonitor():
+    def __init__(self, model, sess, path, patience):
+        self.target_model = model
+        self.tfsession = sess
+        self.model_save_path = path
+        self.patience = patience
+        self.epochs_without_improvement = 0
+        self.best_score = np.inf
+
+    def should_stop(self, score):
+        if self.best_score <= score: # no improvement
+            self.epochs_without_improvement += 1
+            print (score, self.best_score)
+        else: # improvement
+            self.epochs_without_improvement = 0
+            self.best_score = score
+            self.target_model.save(self.model_save_path, self.tfsession)
+
+        # shall be stop?
+        print ("epochs without improvement: {}".format(self.epochs_without_improvement))
+        if self.epochs_without_improvement >= self.patience:
+            return True
+        else:
+            return False
