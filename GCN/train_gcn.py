@@ -2,21 +2,12 @@ import argparse, os
 import tensorflow as tf
 import utils, gcnIO
 from my_gcn import MYGCN
-#import interpretation
 
 from scipy.sparse import lil_matrix
 import scipy.sparse as sp
 
 import numpy as np
 from tensorflow.contrib.tensorboard.plugins import projector
-
-def interpret_results(model_dir):
-    print("Running feature interpretation for {}".format(model_dir))
-    genes = ["CEBPB", "CHD1", "CHD3", "CHD4", "TP53", "PADI4", "RBL2",
-             "BRCA1", "BRCA2", "NOTCH2", "NOTCH1", "MYOC", "ZNF24", "SIM1",
-             "HSP90AA1", "ARNT"]
-    interpretation.interpretation(
-        model_dir, genes, os.path.join(model_dir, 'lrp'), True)
 
 
 def predict(sess, model, features, support, labels, mask, placeholders):
@@ -29,7 +20,38 @@ def predict(sess, model, features, support, labels, mask, placeholders):
 def fit_model(model, sess, features, placeholders,
               support, epochs, dropout_rate, y_train,
               train_mask, y_val, val_mask, output_dir):
-
+    """Fits a constructed model to the data.
+    
+    Trains a given GCN model for as many epochs as specified using
+    the provided session. Metrics (ACC/LOSS/AUROC/AUPR) are monitored
+    using the provided training and validation labels and masks.
+    Early stopping can be used but seems to have problems with
+    restoring the model so far.
+    
+    Parameters:
+    ----------
+    model:              An already initialized GCN model
+    sess:               A tensorflow session object
+    placeholders:       A set of tensorflow variables that was already used
+                        to construct the model.
+                        Can be fed to the session in order to run TF ops
+    support:            The support matrices in sparse format
+    epochs:             The number of epochs to train for
+    dropout_rate:       The percentage of connections set to 0 during
+                        training to increase generalization
+    y_train:            Vector of size n where n is the number of nodes.
+                        A 1 in the vector stands for a positively labelled
+                        node and a 0 for a negatively labelled one
+    train_mask:         A vector similar to `y_train` but symbolizes nodes
+                        that belong to the training set and 0 denotes all
+                        other nodes
+    y_val:              Similar vector to `y_train` but for the validation set
+    val_mask:           Similar vector to `train_mask` but for the validation
+                        set
+    
+    Returns:
+    The trained model.
+    """
     model_save_path = os.path.join(output_dir, 'model.ckpt')
     performance_ops = model.get_performance_metrics()
     running_avg_vars = tf.get_collection(tf.GraphKeys.LOCAL_VARIABLES,
@@ -59,7 +81,7 @@ def fit_model(model, sess, features, placeholders,
     for epoch in range(epochs):
         # training step
         feed_dict = utils.construct_feed_dict(features, support, y_train,
-                                                    train_mask, placeholders)
+                                              train_mask, placeholders)
         feed_dict.update({placeholders['dropout']: dropout_rate})
         _ = sess.run(model.opt_op, feed_dict=feed_dict)
         train_loss, train_acc, train_aupr, train_auroc = sess.run(performance_ops,
@@ -119,6 +141,42 @@ def fit_model(model, sess, features, placeholders,
 def train_gcn(data_path, n_support, hidden_dims, learning_rate,
               weight_decay, loss_multiplier, epochs, dropout_rate,
               output_dir, logging=True):
+    """Train a GCN from some hyper parameters and a HDF5 container.
+    
+    Construct and fit a GCN model to data stored in a HDF5 container.
+    This function encapsulates all Tensorflow stuff. It preprocesses
+    features and the adjacency matrix, sets up a model using TF and
+    writes predictions to a file in the output directory.
+    
+    Parameters:
+    ----------
+    data_path:          Path to a HDF5 container that contains a network,
+                        features and train/test splits as data sets inside.
+    n_support:          The order of neighborhoods (sometimes called radius)
+                        of each node that is taken into account at each layer
+    hidden_dims:        The architecture of the model. A list of integers,
+                        specifying the number of convolutional kernels per
+                        layer and the number of layers altogether
+    learning_rate:      The initial learning rate for the adam optimizer
+    weight_decay:       The rate of the weight decay
+    loss_multiplier:    Times that a positive node (gene) is counted more often
+                        than a negative node. Useful for imbalanced data sets
+                        in which one class is much more frequent than the
+                        other
+    epochs:             Number of epochs to train for
+    dropout_rate:       Percentage of connection to be set to 0 during training
+                        (not evaluation). Improves generalization and robustness
+                        of most neural networks
+    output_dir:         The output directory. Tensorboard summaries and predictions
+                        will be written there
+    logging:            Whether or not learning will be monitored and tensorboard
+                        events are saved (default is True)
+
+    Returns:
+    Predictions. A probability for each node. This is the final prediction for
+    all nodes in the network after training. The predictions are a vector and
+    the nodes are in the same order as in the HDF5 container.
+    """
     # load data and preprocess it
     input_data_path = data_path
     data = gcnIO.load_hdf_data(input_data_path, feature_name='features')
