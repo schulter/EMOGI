@@ -73,7 +73,7 @@ def fit_model(model, sess, features, placeholders,
         if epoch % 10 == 0 or epoch-1 == epochs:
             if model.logging:
                 d = utils.construct_feed_dict(features, support, y_val,
-                                                    val_mask, placeholders)
+                                              val_mask, placeholders)
                 sess.run(metric_reset_op)
                 val_loss, val_acc, val_aupr, val_auroc = sess.run(performance_ops,
                                                                 feed_dict=d)
@@ -103,7 +103,7 @@ def fit_model(model, sess, features, placeholders,
     if save_after_training:
         print("Save model to {}".format(model_save_path))
         path = model.save(model_save_path, sess=sess)
-    else:
+    else: # restore early stopping best model
         model = MYGCN(placeholders=placeholders,
                     input_dim=features[2][1],
                     learning_rate=0.1,
@@ -242,7 +242,8 @@ if __name__ == "__main__":
                             loss_multiplier=args.loss_mul,
                             epochs=args.epochs,
                             dropout_rate=args.dropout,
-                            output_dir=output_dir)
+                            output_dir=output_dir,
+                            logging=True)
 
     # save hyper Parameters and plot
     gcnIO.write_hyper_params(args, args.data,

@@ -123,12 +123,12 @@ if __name__ == "__main__":
                         num_hidden_layers=len(hidden_dims),
                         hidden_dims=hidden_dims,
                         pos_loss_multiplier=args.loss_mul,
-                        logging=False
+                        logging=True
             )
             # fit the model
             model = fit_model(model, sess, features, placeholders,
                               support, args.epochs, args.dropout,
-                              y_train, y_test, train_mask, test_mask,
+                              y_train, train_mask, y_test, test_mask,
                               model_dir)
             # Compute performance on test set
             performance_ops = model.get_performance_metrics()
