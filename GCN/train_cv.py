@@ -69,6 +69,8 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
+    hidden_dims = [int(x) for x in args.hidden_dims]
+
     if not args.data.endswith('.h5'):
         print("Data is not hdf5 container. Exit now.")
         sys.exit(-1)
@@ -100,18 +102,18 @@ if __name__ == "__main__":
                                                     folds=args.cv_runs
     )
 
-    # create placeholders
-    placeholders = {
-        'support': [tf.sparse_placeholder(tf.float32) for _ in range(num_supports)],
-        'features': tf.sparse_placeholder(tf.float32, shape=features[2]),
-        'labels': tf.placeholder(tf.float32, shape=(None, y_all.shape[1])),
-        'labels_mask': tf.placeholder(tf.int32),
-        'dropout': tf.placeholder_with_default(0., shape=()),
-        'num_features_nonzero': tf.placeholder(tf.int32)
-    }
-    hidden_dims = [int(x) for x in args.hidden_dims]
 
     for cv_run in range(args.cv_runs):
+        tf.reset_default_graph()
+        # create placeholders
+        placeholders = {
+            'support': [tf.sparse_placeholder(tf.float32) for _ in range(num_supports)],
+            'features': tf.sparse_placeholder(tf.float32, shape=features[2]),
+            'labels': tf.placeholder(tf.float32, shape=(None, y_all.shape[1])),
+            'labels_mask': tf.placeholder(tf.int32),
+            'dropout': tf.placeholder_with_default(0., shape=()),
+            'num_features_nonzero': tf.placeholder(tf.int32)
+        }
         y_train, y_test, train_mask, test_mask = k_sets[cv_run]
         model_dir = os.path.join(output_dir, 'cv_{}'.format(cv_run))
         # start session and do training
@@ -146,6 +148,5 @@ if __name__ == "__main__":
                                   test_mask, placeholders)
         gcnIO.save_predictions(model_dir, node_names, predictions)
         gcnIO.write_train_test_sets(model_dir, y_train, y_test, train_mask, test_mask)
-
     # save hyper Parameters
     gcnIO.write_hyper_params(args, args.data, os.path.join(output_dir, 'hyper_params.txt'))
