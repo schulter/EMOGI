@@ -133,8 +133,9 @@ def save_plots(feature_names, idx_gene, features, feat_attr_mean, feat_attr_std,
     ax[2].set_xticks(x)
     ax[2].set_xticklabels([i[0] for i in neighbors])
     ax[2].set_ylabel("LRP attribution")
-    for i in range(len(most_important),len(neighbors)):
-        ax[2].patches[i].set_facecolor("#d8b365")
+    for i, val in enumerate([i[1][0] for i in neighbors]):
+        if val < 0:
+            ax[2].patches[i].set_facecolor("#d8b365")
     for i, (gene, val) in enumerate(neighbors):
         if gene in genes_pos:
             ax[2].get_xticklabels()[i].set_color("red")
@@ -182,26 +183,8 @@ def get_attributions(de, model, idx_gene, placeholders, features, support):
                       xs=[features, *support])
     
 
-def interpretation(model_dirs, gene, out_dir, save_edge_lists=False):
-    if out_dir[-1] != "/":
-        out_dir += "/"
-    if not os.path.isdir(out_dir):
-        os.makedirs(out_dir)
-    args, data_file = load_hyper_params(model_dirs[0])
-    print("Load: {}".format(data_file))
-
-    data = load_hdf_data(data_file, feature_name='features')
-    adj, features, y_train, _, node_names, feature_names, genes_pos = data
-    node_names = [x[1] for x in node_names]
-    features = utils.preprocess_features(lil_matrix(features), sparse=False)
-
-    if args["support"] > 0:
-        support = utils.chebyshev_polynomials(adj, args["support"], sparse=False)
-        num_supports = 1 + args["support"]
-    else:
-        support = [np.eye(adj.shape[0])]
-        num_supports = 1
-    
+def interpretation(model_dirs, gene, out_dir, adj, features, y_train, support,
+                   node_names, feature_names, genes_pos, num_supports, args):
     attributions = [[] for _ in range(num_supports+1)]
     print("Now: {}".format(gene))
     for model_dir in model_dirs:
@@ -243,14 +226,42 @@ def interpretation(model_dirs, gene, out_dir, save_edge_lists=False):
     attr_std = [np.std(x, axis=0) for x in attributions]
     save_average_plots(attr_mean, attr_std, idx_gene, adj, node_names, out_dir, features, genes_pos, feature_names)
 
+
+def interpretation_avg(model_dir, genes, out_dir):
+    if out_dir[-1] != "/":
+        out_dir += "/"
+    if not os.path.isdir(out_dir):
+        os.makedirs(out_dir)
+    args, data_file = load_hyper_params(model_dir)
+    print("Load: {}".format(data_file))
+
+    data = load_hdf_data(data_file, feature_name='features')
+    adj, features, y_train, _, node_names, feature_names, genes_pos = data
+    node_names = [x[1] for x in node_names]
+    features = utils.preprocess_features(lil_matrix(features), sparse=False)
+
+    if args["support"] > 0:
+        support = utils.chebyshev_polynomials(adj, args["support"], sparse=False)
+        num_supports = 1 + args["support"]
+    else:
+        support = [np.eye(adj.shape[0])]
+        num_supports = 1
     
+    model_dirs = [os.path.join(model_dir, "cv_"+str(x)) for x in range(10)]
+    for path in model_dirs:
+        if not os.path.isdir(path):
+            raise RuntimeError("Path '{}' not found.".format(path))
+    for gene in genes:
+        interpretation(model_dirs, gene, out_dir, adj, features, y_train, support,
+                       node_names, feature_names, genes_pos, num_supports, args)
+
+
 def main():
     parser = argparse.ArgumentParser(
     description='Do average LRP interpretation on a given cross-validated model')
-    parser.add_argument('-m', '--modeldirs',
+    parser.add_argument('-m', '--modeldir',
                         help='Path to the trained model directory',
-                        nargs="+",
-                        dest='model_dirs',
+                        dest='model_dir',
                         required=True)
     parser.add_argument('-g', '--genes',
                         help='List of gene symbols for which to do interpretation',
@@ -269,15 +280,12 @@ def main():
     
     # create the output dir (within first model dir)
     # at the end output dir contains the average lrp values over all provided models
-    out_dir = os.path.join(args.model_dirs[0], 'lrp')
+    out_dir = os.path.join(args.model_dir, 'lrp')
     if not os.path.isdir(out_dir):
         os.mkdir(out_dir)
-    for gene in genes:
-        interpretation(model_dirs=args.model_dirs,
-                       gene=gene,
-                       out_dir=out_dir,
-                       save_edge_lists = True)
-
+    interpretation_avg(model_dir=args.model_dir,
+                       genes=genes,
+                       out_dir=out_dir)
 
 if __name__ == "__main__":
     main()
