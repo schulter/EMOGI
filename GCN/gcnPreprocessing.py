@@ -59,8 +59,8 @@ def train_test_split(y, mask, val_size):
                                                                   stratify=y[mask==1, 0]
     )
     # build the train/validation masks
-    m_train, y_train = get_y_from_indices(y, mask, train_idx)
-    m_val, y_val = get_y_from_indices(y, mask, val_idx)
+    y_train, m_train = get_y_from_indices(y, mask, train_idx)
+    y_val, m_val = get_y_from_indices(y, mask, val_idx)
     return y_train, m_train, y_val, m_val
 
 def cross_validation_sets(y, mask, folds):
