@@ -82,6 +82,23 @@ def load_hdf_data(path, network_name='network', feature_name='features'):
     return network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names
 
 def write_hyper_params(args, input_file, file_name):
+    """Write hyper parameters to disk.
+
+    Writes a set of hyper parameters of the model to disk.
+    See `load_hyper_params` for information on how to load
+    the hyper parameters.
+
+    Parameters:
+    ----------
+    args:               The parameters to save. Should be in a
+                        arguments object from the `argparse`
+                        package
+    input_file:         The input data hdf5 container. Only
+                        present for legacy reasons
+    file_name:          The file name to write the data to.
+                        Should be 'hyper_params.txt' in order
+                        for the load function to work properly.
+    """
     with open(file_name, 'w') as f:
         for arg in vars(args):
             f.write('{}\t{}\n'.format(arg, getattr(args, arg)))
