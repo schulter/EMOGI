@@ -224,14 +224,18 @@ def interpretation(model_dirs, gene, out_dir, adj, features, y_train, support,
     attributions = [np.array(attributions[i]) for i in range(len(attributions))]
     attr_mean = [np.mean(x, axis=0) for x in attributions]
     attr_std = [np.std(x, axis=0) for x in attributions]
-    save_average_plots(attr_mean, attr_std, idx_gene, adj, node_names, out_dir, features, genes_pos, feature_names)
+    if not out_dir is None:
+        save_average_plots(attr_mean, attr_std, idx_gene, adj, node_names,
+                           out_dir, features, genes_pos, feature_names)
+    return attributions[0]
 
 
 def interpretation_avg(model_dir, genes, out_dir):
-    if out_dir[-1] != "/":
-        out_dir += "/"
-    if not os.path.isdir(out_dir):
-        os.makedirs(out_dir)
+    if not out_dir is None:
+        if out_dir[-1] != "/":
+            out_dir += "/"
+        if not os.path.isdir(out_dir):
+            os.makedirs(out_dir)
     args, data_file = load_hyper_params(model_dir)
     print("Load: {}".format(data_file))
 
@@ -247,13 +251,19 @@ def interpretation_avg(model_dir, genes, out_dir):
         support = [np.eye(adj.shape[0])]
         num_supports = 1
     
-    model_dirs = [os.path.join(model_dir, "cv_"+str(x)) for x in range(10)]
+    # get all subdirs in the model dir
+    model_dirs = [os.path.join(model_dir, i) for i in os.listdir(model_dir) if i.startswith('cv_')]
+    assert(np.all([os.path.isdir(i) for i in model_dirs])) # make sure those are dirs
     for path in model_dirs:
         if not os.path.isdir(path):
             raise RuntimeError("Path '{}' not found.".format(path))
+    
+    attributions_all = []
     for gene in genes:
-        interpretation(model_dirs, gene, out_dir, adj, features, y_train, support,
-                       node_names, feature_names, genes_pos, num_supports, args)
+        attr = interpretation(model_dirs, gene, out_dir, adj, features, y_train, support,
+                              node_names, feature_names, genes_pos, num_supports, args)
+        attributions_all.append(attr)
+    return attributions_all
 
 
 def main():
