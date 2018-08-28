@@ -120,6 +120,28 @@ def construct_feed_dict(features, support, labels, labels_mask, placeholders):
 
 
 
+def get_neighborhood_support(adj, k, sparse=True):
+    """Calculate the support matrices for up to order k.
+    
+    This method calculates the neighborhoods up to order k from
+    an adjacency matrix adj.
+    From those, all lower support nodes will be subtracted, leaving
+    only nodes that were unreachable from a given node with k-1 hops
+    but are reachable with k hops.
+    """
+    I = np.eye(adj.shape[0])
+    support_matrices = [I, adj]
+    sum_so_far = adj
+    for i in range(1, k):
+        S = ((np.linalg.matrix_power(adj, i) > 0) - sum_so_far > 0).astype(np.int32)
+        sum_so_far = sum_so_far + S
+        support_matrices.append(S)
+    
+    if sparse:
+        support_matrices = [sp.coo_matrix(s) for s in support_matrices]
+        return sparse_to_tuple(support_matrices)
+    else:
+        return support_matrices
 
 def chebyshev_polynomials(adj, k, sparse=True, subtract_support=True):
     """Calculate Chebyshev polynomials up to order k. Return a list of sparse matrices (tuple representation)."""
@@ -186,6 +208,7 @@ def fits_on_gpu(adj, features, hidden_dims, support):
 def get_support_matrices(adj, poly_support):
     if poly_support > 0:
         support = chebyshev_polynomials(adj, poly_support)
+        #support = get_neighborhood_support(adj, poly_support)
         num_supports = 1 + poly_support
     else:  # support is 0, don't use the network
         support = [sp.eye(adj.shape[0])]
