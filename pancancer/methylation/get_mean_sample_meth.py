@@ -174,15 +174,17 @@ def get_mean_betaval_for_sample(annotation_genes, methylation_levels):
     n_supports_gene = []
     count = 0
     for _, row in annotation_genes.iterrows():
+        # restrict possible sites to same chr
+        cpgs_on_chr = methylation_levels[methylation_levels.Chromosome == row.chr]
         # promoter
-        m_sites_in_promoter = methylation_levels[methylation_levels.Start.between(row.promoter_start, row.promoter_end)]
+        m_sites_in_promoter = cpgs_on_chr[cpgs_on_chr.Start.between(row.promoter_start, row.promoter_end)]
         beta_vals_prom.append(m_sites_in_promoter.Beta_value.mean())
         n_supports_prom.append(m_sites_in_promoter.shape[0])
         # gene body. Don't start with the start and end coordinates but rather with the end of the promoter
         if row.strand == '+':
-            m_sites_gene = methylation_levels[methylation_levels.Start.between(row.promoter_end, row.end)]
+            m_sites_gene = cpgs_on_chr[cpgs_on_chr.Start.between(row.promoter_end, row.end)]
         else:
-            m_sites_gene = methylation_levels[methylation_levels.Start.between(row.start, row.promoter_start)]
+            m_sites_gene = cpgs_on_chr[cpgs_on_chr.Start.between(row.start, row.promoter_start)]
         beta_vals_gene.append(m_sites_gene.Beta_value.mean())
         n_supports_gene.append(m_sites_gene.shape[0])
         count += 1
