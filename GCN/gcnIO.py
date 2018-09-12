@@ -51,7 +51,7 @@ def load_hdf_data(path, network_name='network', feature_name='features'):
     It extracts a network, features for all of the nodes, the names of the
     nodes (genes) and training, testing and validation splits.
 
-    Paramters:
+    Parameters:
     ---------
     path:               Path to the container
     network_name:       Sometimes, there might be different networks in the
@@ -79,7 +79,11 @@ def load_hdf_data(path, network_name='network', feature_name='features'):
             val_mask = f['mask_val'][:]
         else:
             val_mask = None
-    return network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names
+        if 'feature_names' in f:
+            feature_names = f['feature_names'][:]
+        else:
+            feature_names = None
+    return network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feature_names
 
 def write_hyper_params(args, input_file, file_name):
     """Write hyper parameters to disk.
