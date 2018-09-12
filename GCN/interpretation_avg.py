@@ -162,7 +162,8 @@ def plot_violins(matrix, out_dir, file_name):
     plt.close('all')
 
     
-def save_average_plots(attr_mean, attr_std, idx_gene, adj, node_names, out_dir, features, genes_pos, feature_names):
+def save_average_plots(attr_mean, attr_std, idx_gene, adj, node_names,
+                       out_dir, features, genes_pos, feature_names):
     edge_list, nodes_attr = get_top_neighbors(idx_gene, adj, attr_mean, attr_std)
     save_edge_list(edge_list, nodes_attr, node_names[idx_gene], node_names, out_dir)
     nodes_sorted = sorted(nodes_attr.items(), key=lambda x: x[1][0])
