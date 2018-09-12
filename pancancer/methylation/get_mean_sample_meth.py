@@ -156,13 +156,13 @@ def get_mean_betaval_for_sample(annotation_genes, methylation_levels):
     
     Parameters:
     ----------
-    annotation_genes:                 A dataframe containing a gene per row.
-                                      It needs to have columns for promoter_start
-                                      and promoter_end.
-    methylation_levels:               A dataframe that contains cpg sites per row.
-                                      The sites are expected to be one bp long and
-                                      should have the columns: 'Start', 'End' and 
-                                      'Beta_value'.
+    annotation_genes:           A dataframe containing a gene per row.
+                                It needs to have columns for promoter_start
+                                and promoter_end.
+    methylation_levels:         A dataframe that contains cpg sites per row.
+                                The sites are expected to be one bp long and
+                                should have the columns: 'Start', 'End' and 
+                                Beta_value'.
     Returns:
     Two lists with the mean beta values for each promoter and the number of cpg sites
     that support the promoter. The first list contains the mean beta values and
@@ -191,8 +191,73 @@ def get_mean_betaval_for_sample(annotation_genes, methylation_levels):
     return beta_vals_prom, beta_vals_gene, n_supports_prom, n_supports_gene
 
 
+def get_float(string):
+    """ Convert a string into a float.
 
-def get_meth_df_for_sample(annotation_df, path_name, clean=False):
+    This function converts a string to float if the string represents a floating
+    point number (or integer). If that is not the case, it returns NaN.
+
+    Parameters:
+    ----------
+    string:                     The string that is to be converted to float.
+
+    Returns:
+    A floating point number. Either with the value from `string` or numpy.nan
+    """
+    try:
+        return float(string)
+    except:
+        return np.inf
+
+def get_closest_gene(row):
+    """ Get the closest gene from a row of TCGA level 3 methylation data.
+
+    Extracts the gene name of the closest transcript promoter from
+    a row of TCGA DNA methylation data (level 3). Each of the lines
+    contain the coordinates of the CpG site together with information
+    on the closest gene around it. There are three relevant fields (columns)
+    for that: Gene_Symbol, Transcript_ID and Position_to_TSS.
+    
+    Parameters:
+    ----------
+    row:                        A row from a TCGA DNA methylation Dataframe.
+                                Should contain the columns `Position_to_TSS`
+                                and `Gene_Symbol`.
+    """
+    # extract rows
+    genes = np.array(row.Gene_Symbol.split(';'))
+    protein_coding_genes = np.array([i == 'protein_coding' for i in row.Gene_Type.split(';')])
+    dists = np.array([get_float(i) for i in row.Position_to_TSS.split(';')])
+
+    # remove non-protein-coding genes
+    dists = dists[protein_coding_genes]
+    genes = genes[protein_coding_genes]
+
+    # return closest gene and distance
+    if dists.shape[0] > 0:
+        idx = np.argmin(np.abs(dists))
+        return genes[idx], dists[idx]
+    else:
+        return None, None
+
+def get_promoter_betaval_tcgaannotation(methylation_levels):
+    # write to DF which is the closest gene
+    x = methylation_levels.apply(get_closest_gene, axis=1)
+    methylation_levels['closest_gene'] = [i[0] for i in x]
+    methylation_levels['dist_closest_gene'] = [i[1] for i in x]
+
+    # filter
+    close_cpgs = methylation_levels[methylation_levels.dist_closest_gene.abs() < 1000]
+
+    # group and return
+    cpgs_for_genes = close_cpgs.groupby('closest_gene')
+    beta_values_prom = cpgs_for_genes.Beta_value.mean()
+    n_supports_prom = cpgs_for_genes.Beta_value.count()
+
+    return beta_values_prom, n_supports_prom
+
+
+def get_meth_df_for_sample(annotation_df, path_name, clean=False, tcga_annot=True):
     """Calculates the mean methylation DF for one sample.
     
     This function computes the mean methylation level at
@@ -209,24 +274,37 @@ def get_meth_df_for_sample(annotation_df, path_name, clean=False):
     """
     sub_dirname = os.path.dirname(path_name)
     fname = os.path.basename(path_name)
-    avg_meth_result_path = os.path.join(sub_dirname,
-                    'avg_methylation.tsv'
-                    )
+    if tcga_annot:
+        avg_meth_result_path = os.path.join(sub_dirname,
+                'avg_methylation_tcgaannot.tsv'
+                )
+    else:
+        avg_meth_result_path = os.path.join(sub_dirname,
+                        'avg_methylation.tsv'
+                        )
     # get the cancer type first
     cancer_type = fname.split('.')[1].split('_')[1].strip().lower()
     sample_id = fname.split('.')[-3].strip()
     if not os.path.isfile(avg_meth_result_path) or clean:
         # get mean methylation levels around promoters
         meth_df = load_methylation_file(path_name)
-        beta_p, beta_g, sup_p, sup_g = get_mean_betaval_for_sample(annotation_df, meth_df)
-        # construct dataframe from results
-        res = pd.DataFrame([beta_p, sup_p, beta_g, sup_g]).T
-        colnames = ['mean_beta_value_promoter', 'support_promoter',
-                       'mean_beta_value_gene', 'support_gene']
-        cols = ['{}|{}|{}'.format(sample_id, cancer_type, i) for i in colnames]
-        res.columns = cols
-        res.set_index(annotation_df.Symbol, inplace=True)
-        # add dataframe to overall results and write to file
+        if tcga_annot:
+            beta_prom, sup_prom = get_promoter_betaval_tcgaannotation(meth_df)
+            res = pd.DataFrame([beta_prom, sup_prom]).T
+            colnames = ['mean_beta_value_promoter', 'support_promoter']
+            cols = ['{}|{}|{}'.format(sample_id, cancer_type, i) for i in colnames]
+            res.columns = cols
+            
+        else:
+            beta_p, beta_g, sup_p, sup_g = get_mean_betaval_for_sample(annotation_df,
+                                                                       meth_df)
+            # construct dataframe from results
+            res = pd.DataFrame([beta_p, sup_p, beta_g, sup_g]).T
+            colnames = ['mean_beta_value_promoter', 'support_promoter',
+                        'mean_beta_value_gene', 'support_gene']
+            cols = ['{}|{}|{}'.format(sample_id, cancer_type, i) for i in colnames]
+            res.columns = cols
+            res.set_index(annotation_df.Symbol, inplace=True) # assumes same order
 
         # write the average beta values (at promoters) to file
         res.to_csv(avg_meth_result_path, sep='\t')
@@ -272,6 +350,12 @@ if __name__ == '__main__':
                         default=False,
                         type=bool
                         )
+    parser.add_argument('-tcga', '--tcga_annotations',
+                        help='Use TCGA annotations to CpG sites?',
+                        dest='tcga_annot',
+                        default=True,
+                        type=bool
+                        )
     parser.add_argument('-o', '--output',
                         help='Path to output Dataframe (huge sample-wise matrix)',
                         dest='output',
@@ -311,18 +395,20 @@ if __name__ == '__main__':
 
     # get the preprocessed samples (this is time-consuming)
     all_files = get_filenames(args.meth_dir)
+    print ("Found {} methylation profiles".format(len(all_files)))
     results = Parallel(n_jobs=args.n_jobs)(delayed(get_meth_df_for_sample)(annotation_df,
                                                                            f,
-                                                                           args.clean) for f in all_files)
+                                                                           args.clean,
+                                                                           args.tcga_annot) for f in all_files)
     all_samples_preprocessed = [i[0] for i in results]
     cancer_types = [i[1] for i in results]
+
+    # some information on how many samples we have
+    for key, value in Counter(cancer_types).items():
+        print ("Found {} samples for Cancer {}".format(value, key))
 
     # join samples to form one df with all samples as columns
     total_df = pd.concat(all_samples_preprocessed, axis=1)
     total_df.to_csv(args.output, sep='\t')
-    
-    # some information on how many samples we have
-    for key, value in Counter(cancer_types).items():
-        print ("Found {} samples for Cancer {}".format(value, key))
 
     print ("Finished. Written mean methylation matrix for {} samples to disk".format(len(all_samples_preprocessed)))
