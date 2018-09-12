@@ -80,7 +80,7 @@ if __name__ == "__main__":
     # load data and preprocess it
     input_data_path = args.data
     data = gcnIO.load_hdf_data(input_data_path, feature_name='features')
-    adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names = data
+    adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feature_names = data
     print("Read data from: {}".format(input_data_path))
 
     # preprocess features

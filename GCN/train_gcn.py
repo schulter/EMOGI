@@ -180,7 +180,7 @@ def train_gcn(data_path, n_support, hidden_dims, learning_rate,
     # load data and preprocess it
     input_data_path = data_path
     data = gcnIO.load_hdf_data(input_data_path, feature_name='features')
-    adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names = data
+    adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feature_names = data
     print("Read data from: {}".format(input_data_path))
 
     # preprocess features
