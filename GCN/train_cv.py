@@ -95,8 +95,8 @@ if __name__ == "__main__":
     support, num_supports = utils.get_support_matrices(adj, args.support)
 
     # construct splits for k-fold CV
-    y_all = np.logical_or(np.logical_or(y_train, y_val), y_test)
-    mask_all = np.logical_or(np.logical_or(train_mask, val_mask), test_mask)
+    y_all = np.logical_or(y_train, y_val)
+    mask_all = np.logical_or(train_mask, val_mask)
     k_sets = gcnPreprocessing.cross_validation_sets(y=y_all,
                                                     mask=mask_all,
                                                     folds=args.cv_runs
