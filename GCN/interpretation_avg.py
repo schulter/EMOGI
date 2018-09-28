@@ -185,7 +185,7 @@ def get_attributions(de, model, idx_gene, placeholders, features, support):
     
 
 def interpretation(model_dirs, gene, out_dir, adj, features, y_train, support,
-                   node_names, feature_names, genes_pos, num_supports, args):
+                   node_names, feature_names, genes_pos, num_supports, args, raw_features):
     attributions = [[] for _ in range(num_supports+1)]
     print("Now: {}".format(gene))
     for model_dir in model_dirs:
@@ -227,7 +227,7 @@ def interpretation(model_dirs, gene, out_dir, adj, features, y_train, support,
     attr_std = [np.std(x, axis=0) for x in attributions]
     if not out_dir is None:
         save_average_plots(attr_mean, attr_std, idx_gene, adj, node_names,
-                           out_dir, features, genes_pos, feature_names)
+                           out_dir, raw_features, genes_pos, feature_names)
     return attributions[0]
 
 
@@ -241,10 +241,9 @@ def interpretation_avg(model_dir, genes, out_dir):
     print("Load: {}".format(data_file))
 
     data = load_hdf_data(data_file, feature_name='features')
-    adj, features, y_train, _, node_names, feature_names, genes_pos = data
+    adj, raw_features, y_train, _, node_names, feature_names, genes_pos = data
     node_names = [x[1] for x in node_names]
-    features = utils.preprocess_features(lil_matrix(features), sparse=False)
-
+    features = utils.preprocess_features(lil_matrix(raw_features), sparse=False)
     if args["support"] > 0:
         support = utils.chebyshev_polynomials(adj, args["support"], sparse=False)
         num_supports = 1 + args["support"]
@@ -262,7 +261,8 @@ def interpretation_avg(model_dir, genes, out_dir):
     attributions_all = []
     for gene in genes:
         attr = interpretation(model_dirs, gene, out_dir, adj, features, y_train, support,
-                              node_names, feature_names, genes_pos, num_supports, args)
+                              node_names, feature_names, genes_pos, num_supports, args,
+                              np.matrix(raw_features))
         attributions_all.append(attr)
     return attributions_all
 
