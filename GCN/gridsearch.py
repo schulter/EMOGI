@@ -2,37 +2,18 @@ import argparse
 import os, h5py
 import numpy as np
 import pickle
-from datetime import datetime
 import matplotlib.pyplot as plt
 import tensorflow as tf
-import gcn.utils
+import utils, gcnIO, gcnPreprocessing
 from my_gcn import MYGCN
 from scipy.sparse import csr_matrix, lil_matrix
 from gcn.models import GCN
-import time
+from train_gcn import fit_model, predict
 
-from sklearn.model_selection import ParameterGrid, train_test_split
+from sklearn.model_selection import ParameterGrid
 from sklearn.metrics import average_precision_score
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-def load_hdf_data(path, feature_name='features'):
-    with h5py.File(path, 'r') as f:
-        network = f['network'][:]
-        features = f[feature_name][:]
-        node_names = f['gene_names'][:]
-        y_train = f['y_train'][:]
-        y_test = f['y_test'][:]
-        if 'y_val' in f:
-            y_val = f['y_val'][:]
-        else:
-            y_val = None
-        train_mask = f['mask_train'][:]
-        test_mask = f['mask_test'][:]
-        if 'mask_val' in f:
-            val_mask = f['mask_val'][:]
-        else:
-            val_mask = None
-    return network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names
 
 def masked_aupr_score(y_true, y_score, mask):
     y_true_masked = y_true[:, 0][mask > 0.5]
@@ -40,72 +21,10 @@ def masked_aupr_score(y_true, y_score, mask):
     return average_precision_score(y_true=y_true_masked, y_score=y_score_masked)
 
 def evaluate(model, session, features, support, labels, mask, placeholders):
-    feed_dict_val = gcn.utils.construct_feed_dict(features, support, labels, mask, placeholders)
+    feed_dict_val = utils.construct_feed_dict(features, support, labels, mask, placeholders)
     loss, acc = sess.run([model.loss, model.accuracy], feed_dict=feed_dict_val)
     return loss, acc
 
-def predict(model, session, features, support, labels, mask, placeholders):
-    feed_dict_pred = gcn.utils.construct_feed_dict(features, support, labels, mask, placeholders)
-    pred = sess.run(model.predict(), feed_dict=feed_dict_pred)
-    return pred
-
-def fits_on_gpu(adj, features, hidden_dims, support):
-    """Determines if training should be done on the GPU or CPU.
-    """
-    total_size = 0
-    cur_dim = features[2][1]
-    n = features[2][0]
-    sp_adj = gcn.utils.preprocess_adj(adj)
-    adj_size = np.prod(sp_adj[0].shape) + np.prod(sp_adj[1].shape)
-    print (adj_size, n)
-
-    for layer in range(len(hidden_dims)):
-        H_s = n * cur_dim
-        W_s = cur_dim * hidden_dims[layer]
-        total_size += (adj_size + H_s + W_s)*support
-        cur_dim = hidden_dims[layer]
-    total_size *= 4 # assume 32 bits (4 bytes) per number
-
-    return total_size < 11*1024*1024*1024 # 12 GB memory (only take 11)
-    
-
-def cv_split(y, mask, val_size):
-    """Split mask and targets into train and validation sets (stratified).
-
-    This method contructs mask and targets for training and validation
-    from the complete mask and targets. The proportion of nodes used
-    for validation is determined by `val_size`.
-    The split will be stratified and the returned arrays have the
-    same dimensions as the input arrays.
-
-    Parameters:
-    ----------
-    y:                  The targets for all nodes.
-    mask:               The mask for the known nodes
-    val_size:           The proportion (or absolute size) of nodes
-                        used for validation
-    
-    Returns:
-    Four arrays of length of the input arrays, namely train targets,
-    train mask, validation targets and validation mask.
-    """
-    assert (y.shape[0] == mask.shape[0])
-    mask_idx = np.where(mask == 1)[0]
-    train_idx, val_idx = train_test_split(mask_idx, test_size=val_size,
-                                          stratify=y[mask==1, 0])
-    # build the train/validation masks
-    m_t = np.zeros_like(mask)
-    m_t[train_idx] = 1
-    m_v = np.zeros_like(mask)
-    m_v[val_idx] = 1
-
-    # build the train/validation targets
-    y_t = np.zeros_like(y)
-    y_t[train_idx] = y[train_idx] # all train nodes get train targets
-    y_v = np.zeros_like(y)
-    y_v[val_idx] = y[val_idx] # same for validation
-
-    return y_t, m_t, y_v, m_v
 
 def run_cv(model, sess, features, num_runs, params, placeholders, support, y, mask):
     """Run one parameter setting with CV and evaluate on validation data.
@@ -116,18 +35,23 @@ def run_cv(model, sess, features, num_runs, params, placeholders, support, y, ma
     auprs = []
     num_preds = []
 
+    k_sets = gcnPreprocessing.cross_validation_sets(y=y,
+                                                    mask=mask,
+                                                    folds=num_runs
+    )
     for cv_run in range(num_runs):
         # select some training genes randomly
-        size = 1 / float(num_runs) # size for validation (1/CV runs)
-        y_train, train_mask, y_val, val_mask = cv_split(y, mask, size)
+        y_train, y_val, train_mask, val_mask = k_sets[cv_run]
+
+
         merged = tf.summary.merge_all()
         sess.run(tf.group(tf.global_variables_initializer(),
                  tf.local_variables_initializer()))
         for epoch in range(params['epochs']):
-            feed_dict = gcn.utils.construct_feed_dict(features, support, y_train,
+            feed_dict = utils.construct_feed_dict(features, support, y_train,
                                                       train_mask, placeholders)
             feed_dict.update({placeholders['dropout']: params['dropout']})
-            outs = sess.run([model.opt_op, merged],
+            outs = sess.run([model.opt_op],
                             feed_dict=feed_dict)
         # Testing
         val_loss, val_acc = evaluate(model, sess, features, support,
@@ -140,22 +64,20 @@ def run_cv(model, sess, features, num_runs, params, placeholders, support, y, ma
         losses.append(val_loss)
         aupr = masked_aupr_score(y_test, predictions, test_mask)
         auprs.append(aupr)
-    print ("Test AUPR: {}".format(np.mean(auprs)))
+    print ("Val AUPR: {}".format(np.mean(auprs)))
     return accs, losses, num_preds, auprs
 
 
-def run_model(session, params, adj, features, y_train, y_test, train_mask, test_mask):
-    poly_support = params['support']
-    if poly_support > 1:
-        support = gcn.utils.chebyshev_polynomials(adj, poly_support)
-        num_supports = 1 + poly_support
-    else:
-        support = [gcn.utils.preprocess_adj(adj)]
-        num_supports = 1
+def run_model(session, params, adj, num_cv, features, y, mask, output_dir):
+    """
+    """
+    # compute support matrices
+    support, num_supports = utils.get_support_matrices(adj, params['support'])
+    # construct placeholders & model
     placeholders = {
         'support': [tf.sparse_placeholder(tf.float32) for _ in range(num_supports)],
-        'features': tf.sparse_placeholder(tf.float32, shape=tf.constant(features[2], dtype=tf.int64)),
-        'labels': tf.placeholder(tf.float32, shape=(None, y_train.shape[1])),
+        'features': tf.sparse_placeholder(tf.float32, shape=features[2]),
+        'labels': tf.placeholder(tf.float32, shape=(None, y.shape[1])),
         'labels_mask': tf.placeholder(tf.int32),
         'dropout': tf.placeholder_with_default(0., shape=()),
         'num_features_nonzero': tf.placeholder(tf.int32)  # helper variable for sparse dropout
@@ -167,40 +89,86 @@ def run_model(session, params, adj, features, y_train, y_test, train_mask, test_
                   num_hidden_layers=len(params['hidden_dims']),
                   hidden_dims=params['hidden_dims'],
                   pos_loss_multiplier=params['loss_mul'],
-                  logging=True)
-    return run_cv(model, sess, features, 5, params, placeholders,
-                  support, y_train, train_mask)
+                  logging=False)
+    
+    # where the results go
+    accs = []
+    losses = []
+    auprs = []
+    num_preds = []
+
+    k_sets = gcnPreprocessing.cross_validation_sets(y=y,
+                                                    mask=mask,
+                                                    folds=num_cv
+    )
+    for cv_run in range(num_cv):
+        # select some training genes randomly
+        y_train, y_val, train_mask, val_mask = k_sets[cv_run]
+        model = fit_model(model=model,
+                          sess=session,
+                          features=features,
+                          placeholders=placeholders,
+                          support=support,
+                          epochs=params['epochs'],
+                          dropout_rate=params['dropout'],
+                          y_train=y_train,
+                          train_mask=train_mask,
+                          y_val=y_val,
+                          val_mask=val_mask,
+                          output_dir=os.path.join(output_dir, 'cv_{}'.format(cv_run))
+        )
+        # Compute performance on validation set
+        performance_ops = model.get_performance_metrics()
+        sess.run(tf.local_variables_initializer())
+        d = utils.construct_feed_dict(features, support, y_val,
+                                      val_mask, placeholders)
+        val_performance = sess.run(performance_ops, feed_dict=d)
+        accs.append(val_performance[1])
+        losses.append(val_performance[0])
+        auprs.append(val_performance[2])
+        num_preds.append((val_performance[1] > 0.5).sum())
+    return accs, losses, num_preds, auprs
+
+
+def write_hyper_param_dict(params, file_name):
+    with open(file_name, 'w') as f:
+        for k, v in params.items():
+            f.write('{}\t{}\n'.format(k, v))
+    print("Hyper-Parameters saved to {}".format(file_name))
+
 
 if __name__ == "__main__":
     print ("Loading Data...")
     cv_runs = 5
-    data = load_hdf_data('../data/pancancer/iref_multiomics_norm.h5',
-                         feature_name='features')
-    adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names = data
+    data = gcnIO.load_hdf_data('../data/pancancer/iref_multiomics_norm_methnewpromonly_ncglabels_fpkm.h5',
+                               feature_name='features')
+    adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feat_names = data
     num_nodes = adj.shape[0]
     num_feat = features.shape[1]
+
     if num_feat > 1:
-        features = gcn.utils.preprocess_features(lil_matrix(features))
+        features = utils.preprocess_features(lil_matrix(features))
     else:
         print ("Not row-normalizing features because feature dim is {}".format(num_feat))
-        features = gcn.utils.sparse_to_tuple(lil_matrix(features))
+        features = utils.sparse_to_tuple(lil_matrix(features))
     
     params = {'support':[1, 2],
-              'dropout':[.5],
-              'hidden_dims': [[20, 40], [20, 40, 80], [80, 40, 20], [5], [20, 40, 40, 20],
-                             [100], [5, 40, 5]],
-              'loss_mul': [175, 250],
-              'learningrate':[0.1, .01, .0005],
-              'epochs':[1000],
+              'dropout':[0.1, 0.25, .5, 0.75],
+              'hidden_dims': [[10, 20, 30, 40, 50], [30, 20, 10, 5, 3],
+                              [30, 30, 30, 30, 30], [20, 40, 100, 20, 10],
+                              [50, 100], [50, 25, 10], [20, 40, 20]],
+              'loss_mul': [20, 30, 40],
+              'learningrate':[0.001],
+              'epochs':[3000],
               'weight_decay':[5e-4]
               }
     """
-    params = {'support':[2],
+    params = {'support':[1, 2],
               'dropout':[.1],
-              'hidden_dims':[[100, 200]],
+              'hidden_dims':[[50, 40]],
               'loss_mul':[1],
               'learningrate':[.1],
-              'epochs':[700],
+              'epochs':[100],
               'weight_decay':[0.05]
               }
     """
@@ -210,12 +178,14 @@ if __name__ == "__main__":
     param_num = 1
     # create session, train and save afterwards
     performances = []
+    out_dir = gcnIO.create_model_dir()
     for param_set in list(ParameterGrid(params)):
+        param_dir = os.path.join(out_dir, 'params_{}'.format(param_num))
         with tf.Session() as sess:
-            accs, losses, numpreds, auprs = run_model(sess, param_set, adj,
-                                                      features, y_train, y_test,
-                                                      train_mask, test_mask)
+            accs, losses, numpreds, auprs = run_model(sess, param_set, adj, 5,
+                                                      features, y_train, train_mask, param_dir)
         performances.append((accs, losses, numpreds, auprs, param_set))
+        write_hyper_param_dict(param_set, os.path.join(param_dir, 'params.txt'))
         print ("[{} out of {} combinations]: {}".format(param_num, num_of_settings, param_set))
         param_num += 1
         tf.reset_default_graph()
