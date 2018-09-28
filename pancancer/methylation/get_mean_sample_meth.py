@@ -240,6 +240,46 @@ def get_closest_gene(row):
     else:
         return None, None
 
+def get_closest_5prime_transcript(row, gene_transcript_mapping):
+    """ Get the closest 5' transcript from a row of TCGA level 3 methylation data.
+
+    Extracts the transcript ID of the transcript whose TSS is closest to the
+    CpG site in question. This is computed from a row of TCGA DNA methylation
+    data (level 3). The function uses a pre-computed mapping from genes
+    to 5' transcripts for its calculation.
+    It first extracts the transcripts and distances to TSS for the CpG site
+    and then discards all that are not in the list of closest transcripts in
+    the mapping. Finally, from the valid transcripts the one with the closest
+    TSS is chosen and returned.
+    
+    Parameters:
+    ----------
+    row:                        A row from a TCGA DNA methylation Dataframe.
+                                Should contain the columns `Position_to_TSS`
+                                and `Gene_Symbol`.
+    
+    Returns:
+    The transcript ID and distance to the transcript TSS of a CpG site.
+    This can be used as part of an apply call on a dataframe.
+    """
+    # extract rows
+    transcripts = pd.Series(row.Transcript_ID.split(';'))
+    transcripts = transcripts.str.split('.').str[0] # remove transcript version number
+    
+    valid_transcripts = transcripts.isin(gene_transcript_mapping)
+    dists = np.array([get_float(i) for i in row.Position_to_TSS.split(';')])
+
+    # remove non-protein-coding genes
+    dists = dists[valid_transcripts]
+    transcripts = transcripts[valid_transcripts]
+
+    if dists.shape[0] > 0:
+        idx = np.argmin(np.abs(dists))
+        return np.array(transcripts)[idx], dists[idx]
+    else:
+        return None, None
+
+
 def get_promoter_betaval_tcgaannotation(methylation_levels):
     # write to DF which is the closest gene
     x = methylation_levels.apply(get_closest_gene, axis=1)
@@ -257,6 +297,159 @@ def get_promoter_betaval_tcgaannotation(methylation_levels):
     return beta_values_prom, n_supports_prom
 
 
+def get_gene2transcript_map(annotation_df):
+    """Calculate a mapping from a gene to its most 5' transcript.
+
+    This function calculates a mapping from a gene to its most 5' transcript using a
+    GENCODE annotation file. For each transcript, the corresponding parent gene is
+    extracted together with its distance to the chromosome start. For genes on the
+    - strand, negative values are used.
+    Using a map/reduce pattern, the transcripts are grouped by parent genes and the
+    most 5' transcript per gene is chosen.
+
+    Parameters:
+    ----------
+    annotation_df:              The GENCODE annotation file as pandas DataFrame.
+                                Usually, the basic annotation is preferred over the
+                                comprehensive.
+
+    Returns:
+    A DataFrame containing the gene symbol as index and the corresponding 5' transcript
+    as column.
+    """
+    # get a mapping from gene to transcript
+    transcripts = annotation_df[annotation_df.type == 'transcript'].copy()
+    # extract all attributes of transcripts
+    transcript_attrs = []
+    for attrs in transcripts.attr.str.split(';'):
+        transcript_attrs.append({i.split('=')[0]:i.split('=')[1] for i in attrs})
+
+    # set the attributes to additional columns (remove transcript version number)
+    transcripts['ID'] = [i['ID'].strip().split('.')[0] for i in transcript_attrs]
+    transcripts['Parent'] = [i['Parent'] for i in transcript_attrs]
+    transcripts['Gene_Symbol'] = [i['gene_name'] for i in transcript_attrs]
+
+    # build column with the distance to the chromosome start (for transcripts on the - strand, take negative values)
+    transcripts['dist_to_chr_start'] = transcripts.start
+    transcripts.loc[transcripts.strand == '-', 'dist_to_chr_start'] = -transcripts.end
+    transcripts.set_index('ID', inplace=True)
+    # mapping is now simply the transcript in a group of a gene that has minimum distance
+    gene_transcript_mapping = transcripts.groupby('Gene_Symbol').dist_to_chr_start.idxmin()
+
+    return gene_transcript_mapping
+
+
+def get_cpg_transcript_map(annotation_df, methylation_levels):
+    """Calculates a mapping from CpG site to closest transcript.
+    
+    This function calculates a mapping from CpG site to gene promoter and
+    the distance to it. It makes use of the annotations in a TCGA methylation
+    file (level 3). For each CpG site, its closest transcripts and their distance
+    to the TSS are extracted. Then, all transcripts that are not the most 5'
+    transcripts of a gene are discarded and from the remaining transcripts, the
+    closest one is chosen. This implies that a CpG site can only belong to one
+    gene promoter.
+    The calculated map of CpG sites to transcript promoters is finally joined
+    with a mapping from transcripts to genes (computed from GENCODE annotation)
+    and the final mapping is returned.
+
+    Parameters:
+    ----------
+    annotation_df:              The GENCODE annotation file as pandas DataFrame.
+                                Usually, the basic annotation is preferred over the
+                                comprehensive.
+    methylation_levels:         A TCGA level 3 methylation file. This will
+                                serve as template for all other samples, so
+                                if you use 450k data, this file should contain
+                                all the CpG sites you are interested in.
+
+    Returns:
+    A Dataframe with CpG sites as rows (Composite Element REF) and the gene/transcript
+    as columns. The columns contain the distance to the closest transcript of that CpG
+    site, the Ensembl ID of that transcript and the gene name of the transcript (Symbol).
+    """
+    gene_transcript_map = get_gene2transcript_map(annotation_df)
+    # get the closest 5' transcript according to the gene transcript map
+    x = methylation_levels.apply(get_closest_5prime_transcript,
+                                 axis=1,
+                                 gene_transcript_mapping=gene_transcript_map)
+    methylation_levels['closest_transcript'] = [i[0] for i in x]
+    methylation_levels['dist_closest_transcript'] = [i[1] for i in x]
+    
+    # get transcript ID and Gene Symbol in mapping as new columns
+    gene_transcript_map_df = pd.DataFrame(gene_transcript_map)
+    gene_transcript_map_df.columns = ['Transcript_ID']
+    gene_transcript_map_df['Symbol'] = gene_transcript_map_df.index
+
+    # construct the mapping
+    cpgs_with_genes = methylation_levels[~methylation_levels.closest_transcript.isnull()]
+    cpgs_with_genes.drop(['Transcript_ID', 'Position_to_TSS'], axis=1, inplace=True)
+    cpg_gene_mapping = cpgs_with_genes.merge(gene_transcript_map_df,
+                                             left_on='closest_transcript',
+                                             right_on='Transcript_ID'
+                                            )
+    cpg_gene_mapping.set_index('Composite Element REF', inplace=True)
+    mapping_cols = ['dist_closest_transcript', 'Transcript_ID', 'Symbol']
+    return cpg_gene_mapping[mapping_cols]
+
+
+def get_meth_df_from_mapping(cpg_gene_map, path_name, clean=False):
+    """Computes promoter DNA methylation from a CpG to gene mapping.
+
+    This function computes the average DNA methylation at promoters from
+    a mapping of CpG sites to genes. It essentially only joins the mapping
+    with the actual beta values from the sample in question.
+    It then aggregates the genes together, returning a DataFrame with
+    the average DNA methylation at the promoter of each gene and the
+    cancer type of the individual.
+
+    Parameters:
+    ----------
+    cpg_gene_map:               A mapping between CpG sites and genes/transcripts.
+                                Can be computed from TCGA annotations to the methylation
+                                data. @see get_cpg_transcript_map
+    path_name:                  The path to the methylation file. Should be in TCGA format,
+                                thus containing information on close-by genes additionally
+                                to the pure coordinates and beta value.
+    clean:                      Whether to use potential previous runs and data written into
+                                the download directory or not. If changing the method of how
+                                DNA methylation is computed, clean=True is recommended.
+
+    Returns:
+    A dataframe with methylation levels at promoters and number of CpG sites per gene promoter as
+    columns and gene names as rows and the cancer type of the sample.
+    Ideally, there should be as many genes as there are in the mapping file.
+    The columns of the returned dataframe will have the format:
+    <sample_id>|<cancer_type>|<beta_val/support> (separator is |)
+    """
+    sub_dirname = os.path.dirname(path_name)
+    fname = os.path.basename(path_name)
+    avg_meth_result_path = os.path.join(sub_dirname,
+            'avg_methylation_tcgaannot.tsv'
+            )
+    cancer_type = fname.split('.')[1].split('_')[1].strip().lower()
+    sample_id = fname.split('.')[-3].strip()
+
+    if not os.path.isfile(avg_meth_result_path) or clean:
+        meth_df = load_methylation_file(path_name)
+        meth_df.drop(['Transcript_ID', 'Gene_Symbol', 'Gene_Type', 'Position_to_TSS',
+                      'CGI_Coordinate', 'Feature_Type'],
+                      axis=1, inplace=True)
+        meth_df.set_index('Composite Element REF', inplace=True)
+        meth_annot = meth_df.join(cpg_gene_map)
+        meth_annot_inrange = meth_annot[meth_annot.dist_closest_transcript.abs() < 1000]
+        res = pd.DataFrame(meth_annot_inrange.dropna().groupby('Symbol').Beta_value.mean())
+        res['support_promoter'] = meth_annot_inrange.dropna().groupby('Symbol').Beta_value.count()
+        colnames = ['mean_beta_value_promoter', 'support_promoter']
+        cols = ['{}|{}|{}'.format(sample_id, cancer_type, i) for i in colnames]
+        res.columns = cols
+        res.to_csv(avg_meth_result_path, sep='\t')
+    else:
+        res = pd.read_csv(avg_meth_result_path, sep='\t')
+        res.set_index('Symbol', inplace=True)
+    return res, cancer_type
+
+
 def get_meth_df_for_sample(annotation_df, path_name, clean=False, tcga_annot=True):
     """Calculates the mean methylation DF for one sample.
     
@@ -271,6 +464,27 @@ def get_meth_df_for_sample(annotation_df, path_name, clean=False, tcga_annot=Tru
     and returned simply instead of re-extracting the methylation
     values. If clean is set to True, the extraction takes place
     in any case.
+
+    Parameters:
+    ----------
+    annotation_df:              The annotation file as dataframe. Can be computed using
+                                @see load_annotation_gff from the gencode annotation.
+    path_name:                  The path to the methylation file. Should be in TCGA format,
+                                thus containing information on close-by genes additionally
+                                to the pure coordinates and beta value.
+    clean:                      Whether to use potential previous runs and data written into
+                                the download directory or not. If changing the method of how
+                                DNA methylation is computed, clean=True is recommended.
+    tcga_annot:                 Whether or not to use the annotation from TCGA to each
+                                individual CpG site. Otherwise it uses promoter windows
+                                around the TSS of a gene.
+
+    Returns:
+    A dataframe with methylation levels at promoters and number of CpG sites per gene promoter as
+    columns and gene names as rows and the cancer type of the sample.
+    Ideally, there should be as many genes as there are in the mapping file.
+    The columns of the returned dataframe will have the format:
+    <sample_id>|<cancer_type>|<beta_val/support> (separator is |)
     """
     sub_dirname = os.path.dirname(path_name)
     fname = os.path.basename(path_name)
@@ -294,7 +508,6 @@ def get_meth_df_for_sample(annotation_df, path_name, clean=False, tcga_annot=Tru
             colnames = ['mean_beta_value_promoter', 'support_promoter']
             cols = ['{}|{}|{}'.format(sample_id, cancer_type, i) for i in colnames]
             res.columns = cols
-            
         else:
             beta_p, beta_g, sup_p, sup_g = get_mean_betaval_for_sample(annotation_df,
                                                                        meth_df)
@@ -333,17 +546,6 @@ if __name__ == '__main__':
                         default=None,
                         type=str
                         )
-    parser.add_argument('-ps', '--promoter_sliding',
-                        help='Use a sliding window approach to extract promoter regions?',
-                        dest='p_sliding_window',
-                        default=False,
-                        type=bool
-                        )
-    parser.add_argument('-mm', '--mean_methylation',
-                        help='Path to file containing averaged methylation across all samples (only relevant for sliding window approach for promoter extraction)',
-                        dest='mm_path',
-                        type=str
-                        )
     parser.add_argument('-c', '--clean',
                         help='Re-compute when there are already avg files?',
                         dest='clean',
@@ -353,6 +555,12 @@ if __name__ == '__main__':
     parser.add_argument('-tcga', '--tcga_annotations',
                         help='Use TCGA annotations to CpG sites?',
                         dest='tcga_annot',
+                        default=True,
+                        type=bool
+                        )
+    parser.add_argument('-fiveprime', '--tcga_most_downstream_transcript',
+                        help='Only use DNA methylation of most 5prime transcript?',
+                        dest='fiveprime',
                         default=True,
                         type=bool
                         )
@@ -377,29 +585,47 @@ if __name__ == '__main__':
     if args.annotation.endswith('.tsv'):
         annotation_df = pd.read_csv(args.annotation, sep='\t')
     elif args.annotation.endswith('.gff3'):
-        if args.p_sliding_window and os.path.isfile(args.mm_path):
-            print ("Calculating Promoters with sliding window (Takes Time))")
-            avg_meth = load_methylation_file(args.mm_path)
-            annotation_df = load_annotation_gff(args.annotation,
-                                                gene_list=relevant_genes,
-                                                meth_data=avg_meth)
-            # write promoter annotation back to disk
-            annotation_df.to_csv(args.annotation + '.tsv', sep='\t')
-            print ("Wrote annotations with promoters to {}".format(args.annotation + '.tsv'))
-        else:
-            annotation_df = load_annotation_gff(args.annotation, gene_list=relevant_genes)
+        annotation_df = load_annotation_gff(args.annotation, gene_list=relevant_genes)
     else:
         print ("Unknown Annotation file format. Only tsv and gff3 are supported")
         sys.exit(-1)
     print ("Loaded Annotation file with {} genes".format(annotation_df.shape[0]))
 
-    # get the preprocessed samples (this is time-consuming)
+    # get file names of DNA methylation downloads
     all_files = get_filenames(args.meth_dir)
     print ("Found {} methylation profiles".format(len(all_files)))
-    results = Parallel(n_jobs=args.n_jobs)(delayed(get_meth_df_for_sample)(annotation_df,
-                                                                           f,
-                                                                           args.clean,
-                                                                           args.tcga_annot) for f in all_files)
+
+    # Derive DNA methylation at promoters
+    if args.tcga_annot and args.fiveprime: # use TCGA annotations and only fiveprime transcript
+        # get mapping of CpG site to closest 5' transcript
+        if args.annotation.endswith('.gff3'):
+            a_df = pd.read_csv(args.annotation, sep='\t', skiprows=7,
+                            header=None,
+                            names=['chr', 'source', 'type', 'start', 'end', 'score',
+                                    'strand', 'phase', 'attr']
+                            )
+        else:
+            a_df = pd.read_csv(args.annotation, sep='\t')
+        cpg_genemap_file = os.path.join(os.path.dirname(args.annotation), 'cpg2genemap.tsv')
+        if not os.path.exists(cpg_genemap_file):
+            print ("Computing CpG site to transcript map")
+            cpg_mapping = get_cpg_transcript_map(a_df, load_methylation_file(all_files[0]))
+            cpg_mapping.to_csv(cpg_genemap_file, sep='\t')
+            print ("Mapping computed. Applying for all samples now...")
+        else:
+            print ("Loading mapping of CpG site to transcripts from disk...")
+            cpg_mapping = pd.read_csv(cpg_genemap_file, sep='\t')
+            cpg_mapping.set_index('Composite Element REF', inplace=True)
+        
+        # use the mapping as template for all samples (e.g. apply)
+        results = Parallel(n_jobs=args.n_jobs)(delayed(get_meth_df_from_mapping)(cpg_mapping,
+                                                                                 f,
+                                                                                 args.clean) for f in all_files)
+    else: # use TCGA annotations (and mean over all transcripts of each gene) or fixed promoters
+        results = Parallel(n_jobs=args.n_jobs)(delayed(get_meth_df_for_sample)(annotation_df,
+                                                                               f,
+                                                                               args.clean,
+                                                                               args.tcga_annot) for f in all_files)
     all_samples_preprocessed = [i[0] for i in results]
     cancer_types = [i[1] for i in results]
 
