@@ -1,17 +1,22 @@
 import argparse
-import os, h5py
-import numpy as np
+import os
 import pickle
+
+import h5py
 import matplotlib.pyplot as plt
+import numpy as np
 import tensorflow as tf
-import utils, gcnIO, gcnPreprocessing
-from my_gcn import MYGCN
 from scipy.sparse import csr_matrix, lil_matrix
+from sklearn.metrics import average_precision_score
+from sklearn.model_selection import ParameterGrid
+
+import gcnIO
+import gcnPreprocessing
+import utils
 from gcn.models import GCN
+from my_gcn import MYGCN
 from train_gcn import fit_model, predict
 
-from sklearn.model_selection import ParameterGrid
-from sklearn.metrics import average_precision_score
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
@@ -123,10 +128,11 @@ def run_model(session, params, adj, num_cv, features, y, mask, output_dir):
         d = utils.construct_feed_dict(features, support, y_val,
                                       val_mask, placeholders)
         val_performance = sess.run(performance_ops, feed_dict=d)
+        predictions = sess.run(model.predict(), feed_dict=d)
         accs.append(val_performance[1])
         losses.append(val_performance[0])
         auprs.append(val_performance[2])
-        num_preds.append((val_performance[1] > 0.5).sum())
+        num_preds.append((predictions > 0.5).sum())
     return accs, losses, num_preds, auprs
 
 
@@ -151,7 +157,7 @@ if __name__ == "__main__":
     else:
         print ("Not row-normalizing features because feature dim is {}".format(num_feat))
         features = utils.sparse_to_tuple(lil_matrix(features))
-    
+
     params = {'support':[1, 2],
               'dropout':[0.1, 0.25, .5, 0.75],
               'hidden_dims': [[10, 20, 30, 40, 50], [30, 20, 10, 5, 3],
