@@ -113,11 +113,12 @@ def _hide_top_right(ax):
     ax.xaxis.set_ticks_position('bottom')
 
 
-def save_plots(feature_names, idx_gene, features, feat_attr_mean, feat_attr_std, node_names, genes_pos, most_important, least_important, out_dir):
+def save_plots(feature_names, idx_gene, features, feat_attr_mean, feat_attr_std, node_names,
+               genes_pos, most_important, least_important, out_dir, plot_title):
     fig, ax = plt.subplots(nrows = 3, ncols = 1, figsize = (12, 6))
     # original feature plot
     x = np.arange(len(feature_names))
-    ax[0].set_title(node_names[idx_gene])
+    ax[0].set_title("{} (label = {}, mean prediction = {})".format(node_names[idx_gene], *plot_title))
     ax[0].bar(x, features[idx_gene,:].tolist()[0], color="#67a9cf")
     ax[0].set_xticks(x)
     ax[0].set_xticklabels(feature_names)
@@ -167,7 +168,7 @@ def plot_violins(matrix, out_dir, file_name):
 
     
 def save_average_plots(attr_mean, attr_std, idx_gene, adj, node_names,
-                       out_dir, features, genes_pos, feature_names):
+                       out_dir, features, genes_pos, feature_names, plot_title):
     edge_list, nodes_attr = get_top_neighbors(idx_gene, adj, attr_mean, attr_std)
     save_edge_list(edge_list, nodes_attr, node_names[idx_gene], node_names, out_dir)
     nodes_sorted = sorted(nodes_attr.items(), key=lambda x: x[1][0])
@@ -176,7 +177,7 @@ def save_average_plots(attr_mean, attr_std, idx_gene, adj, node_names,
     least_important = nodes_sorted[:15]
     f_names = feature_names if not feature_names is None else np.arange(features.shape[1])
     save_plots(f_names, idx_gene, features, attr_mean[0], attr_std[0],
-               node_names, genes_pos, most_important, least_important, out_dir)
+               node_names, genes_pos, most_important, least_important, out_dir, plot_title)
 
 
 def get_attributions(de, model, idx_gene, placeholders, features, support):
@@ -189,7 +190,8 @@ def get_attributions(de, model, idx_gene, placeholders, features, support):
     
 
 def interpretation(model_dirs, gene, out_dir, adj, features, y_train, support,
-                   node_names, feature_names, genes_pos, num_supports, args, raw_features):
+                   node_names, feature_names, genes_pos, num_supports, args, raw_features,
+                   predicted_probs):
     attributions = [[] for _ in range(num_supports+1)]
     print("Now: {}".format(gene))
     for model_dir in model_dirs:
@@ -224,14 +226,19 @@ def interpretation(model_dirs, gene, out_dir, adj, features, y_train, support,
                 for i in range(len(new_attr)):
                     attributions[i].append(new_attr[i])
         tf.reset_default_graph()
-    if attributions[0] == []: return
+    if attributions[0] == []: return None
     # create avg plots for this gene
     attributions = [np.array(attributions[i]) for i in range(len(attributions))]
     attr_mean = [np.mean(x, axis=0) for x in attributions]
     attr_std = [np.std(x, axis=0) for x in attributions]
     if not out_dir is None:
+        # get predicted probability and true for the gene
+        for line in predicted_probs:
+            if line[2] == gene:
+                plot_title = (line[1], round(float(line[-2]), 3))
+                break
         save_average_plots(attr_mean, attr_std, idx_gene, adj, node_names,
-                           out_dir, raw_features, genes_pos, feature_names)
+                           out_dir, raw_features, genes_pos, feature_names, plot_title)
     return attributions[0]
 
 
@@ -245,13 +252,17 @@ def interpretation_avg(model_dir, genes, out_dir):
     print("Load: {}".format(data_file))
 
     data = load_hdf_data(data_file, feature_name='features')
+
     adj, features, raw_features, y_train, _, node_names, feature_names, genes_pos = data
     # get raw features from numpy file if they are not in container
     if raw_features is None:
         #raw_features = features
         raw_features = np.load('../data/pancancer/multiomics_features_raw_fc.npy')
+    plot_violins(features, out_dir, "features_h5.pdf")
     node_names = [x[1] for x in node_names]
     features = utils.preprocess_features(lil_matrix(raw_features), sparse=False)
+    plot_violins(features, out_dir, "features_afterpreprocess.pdf")
+
     if args["support"] > 0:
         support = utils.chebyshev_polynomials(adj, args["support"], sparse=False)
         num_supports = 1 + args["support"]
@@ -266,11 +277,20 @@ def interpretation_avg(model_dir, genes, out_dir):
         if not os.path.isdir(path):
             raise RuntimeError("Path '{}' not found.".format(path))
     
+    # get predicted probabilities
+    predicted_probs = []
+    with open(os.path.join(model_dir, "ensemble_predictions.tsv"), "rt") as handle:
+        for i, line in enumerate(handle):
+            if i == 0: continue
+            predicted_probs.append(line.split('\t'))
+    assert len(predicted_probs) == features.shape[0]
+    assert len(predicted_probs) == len(set(x[2] for x in predicted_probs))
+
     attributions_all = []
     for gene in genes:
         attr = interpretation(model_dirs, gene, out_dir, adj, features, y_train, support,
                               node_names, feature_names, genes_pos, num_supports, args,
-                              np.matrix(raw_features))
+                              np.matrix(raw_features), predicted_probs)
         attributions_all.append(attr)
     return attributions_all
 
