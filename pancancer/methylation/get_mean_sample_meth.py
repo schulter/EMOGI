@@ -529,7 +529,8 @@ def get_meth_df_for_sample(annotation_df, path_name, clean=False, tcga_annot=Tru
 
 if __name__ == '__main__':
     # parse arguments
-    parser = argparse.ArgumentParser(description='Preprocess methylation data')
+    parser = argparse.ArgumentParser(description='Preprocess methylation data',
+                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-a', '--annotation',
                         help='Path to annotation file (GFF3)',
                         dest='annotation',
@@ -538,7 +539,8 @@ if __name__ == '__main__':
     parser.add_argument('-md', '--methylation_dir',
                         help='Path to methylation download dir',
                         dest='meth_dir',
-                        type=str
+                        type=str,
+                        required=True
                         )
     parser.add_argument('-rg', '--rel_genes',
                         help='Path to container with relevant genes',
@@ -567,7 +569,8 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--output',
                         help='Path to output Dataframe (huge sample-wise matrix)',
                         dest='output',
-                        type=str
+                        type=str,
+                        required=True
                         )
     parser.add_argument('-n', '--cores',
                         help='Number of cores to use',
@@ -618,6 +621,7 @@ if __name__ == '__main__':
             cpg_mapping.set_index('Composite Element REF', inplace=True)
         
         # use the mapping as template for all samples (e.g. apply)
+        print ("Applying cpg 2 transcript mapping for all samples (takes time and uses processors)")
         results = Parallel(n_jobs=args.n_jobs)(delayed(get_meth_df_from_mapping)(cpg_mapping,
                                                                                  f,
                                                                                  args.clean) for f in all_files)
@@ -635,6 +639,6 @@ if __name__ == '__main__':
 
     # join samples to form one df with all samples as columns
     total_df = pd.concat(all_samples_preprocessed, axis=1)
-    total_df.to_csv(args.output, sep='\t')
+    total_df.to_csv(args.output, sep='\t', compression='gzip')
 
     print ("Finished. Written mean methylation matrix for {} samples to disk".format(len(all_samples_preprocessed)))
