@@ -66,7 +66,11 @@ def load_hdf_data(path, network_name='network', feature_name='features'):
         for group in positives:
             genes_pos.update(np.nonzero(group)[0])
         genes_pos = set(node_names[i,1] for i in genes_pos)
-    return network, features, y_train, train_mask, node_names, feature_names, genes_pos
+        if 'features_raw' in f:
+            features_raw = f['features_raw'][:]
+        else:
+            features_raw = None
+    return network, features, features_raw, y_train, train_mask, node_names, feature_names, genes_pos
 
 
 def get_direct_neighbors(adj, node):
@@ -127,7 +131,7 @@ def save_plots(feature_names, idx_gene, features, feat_attr_mean, feat_attr_std,
         if val < 0:
             ax[1].patches[i].set_facecolor("#d8b365")
     # most/least important neighbors
-    neighbors = most_important+least_important[::-1]
+    neighbors = most_important + least_important[::-1]
     x = np.arange(len(neighbors))
     ax[2].bar(x, [i[1][0] for i in neighbors], color="#5ab4ac", yerr= [i[1][1] for i in neighbors])
     ax[2].set_xticks(x)
@@ -168,7 +172,7 @@ def save_average_plots(attr_mean, attr_std, idx_gene, adj, node_names,
     save_edge_list(edge_list, nodes_attr, node_names[idx_gene], node_names, out_dir)
     nodes_sorted = sorted(nodes_attr.items(), key=lambda x: x[1][0])
     nodes_sorted = [(node_names[idx], attr) for idx, attr in nodes_sorted]
-    most_important = nodes_sorted[-15:][::-1]
+    most_important = nodes_sorted[-30:][::-1]
     least_important = nodes_sorted[:15]
     f_names = feature_names if not feature_names is None else np.arange(features.shape[1])
     save_plots(f_names, idx_gene, features, attr_mean[0], attr_std[0],
@@ -179,7 +183,7 @@ def get_attributions(de, model, idx_gene, placeholders, features, support):
     mask_gene = np.zeros((features.shape[0],1))
     mask_gene[idx_gene] = 1
     return de.explain(method="elrp",
-                      T=model.outputs * mask_gene,
+                      T=tf.nn.sigmoid(model.outputs) * mask_gene,
                       X=[placeholders['features'], *placeholders["support"]],
                       xs=[features, *support])
     
@@ -241,7 +245,11 @@ def interpretation_avg(model_dir, genes, out_dir):
     print("Load: {}".format(data_file))
 
     data = load_hdf_data(data_file, feature_name='features')
-    adj, raw_features, y_train, _, node_names, feature_names, genes_pos = data
+    adj, features, raw_features, y_train, _, node_names, feature_names, genes_pos = data
+    # get raw features from numpy file if they are not in container
+    if raw_features is None:
+        #raw_features = features
+        raw_features = np.load('../data/pancancer/multiomics_features_raw_fc.npy')
     node_names = [x[1] for x in node_names]
     features = utils.preprocess_features(lil_matrix(raw_features), sparse=False)
     if args["support"] > 0:
@@ -250,7 +258,7 @@ def interpretation_avg(model_dir, genes, out_dir):
     else:
         support = [np.eye(adj.shape[0])]
         num_supports = 1
-    
+
     # get all subdirs in the model dir
     model_dirs = [os.path.join(model_dir, i) for i in os.listdir(model_dir) if i.startswith('cv_')]
     assert(np.all([os.path.isdir(i) for i in model_dirs])) # make sure those are dirs
@@ -285,13 +293,15 @@ def main():
     if args.genes is None:
         genes = ["NCK1", "ITGAX", "PAG1", "SH2B2", "CEBPB", "CHD1", "CHD3", "CHD4",
                  "TP53", "PADI4", "RBL2", "BRCA1", "BRCA2", "NOTCH2", "NOTCH1",
-                 "MYOC", "ZNF24", "SIM1", "HSP90AA1", "ARNT"]
+                 "MYOC", "ZNF24", "SIM1", "HSP90AA1", "ARNT", "KRAS", "SMAD6", "SMAD4", 
+                 "STAT1", "MGMT", "NCOR2", "RUNX1", "KAT7", "IDH1", "IDH2", "DROSHA",
+                 "WRN", "FOXA1", "RAC1", "BIRC3", "DNM2", "MYC"]
     else:
         genes = args.genes
     
     # create the output dir (within first model dir)
     # at the end output dir contains the average lrp values over all provided models
-    out_dir = os.path.join(args.model_dir, 'lrp')
+    out_dir = os.path.join(args.model_dir, 'lrp_sigmoid')
     if not os.path.isdir(out_dir):
         os.mkdir(out_dir)
     interpretation_avg(model_dir=args.model_dir,
