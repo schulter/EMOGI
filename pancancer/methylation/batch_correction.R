@@ -15,11 +15,10 @@ pheno$batch <- as.factor(pheno$batch)
 freqs_of_batches = as.data.frame(table(pheno$batch))
 
 # run ComBat using the batch variable for adjustment
-if (length(unique(pheno$batch)) > 1 && min(freqs_of_batches$Freq) > 1) { # something to adjust
-    print (length(unique(pheno$batch)))
-  modCombat = model.matrix(~1, data = pheno)
-  adjusted_data = ComBat(dat = sample_matrix, batch = as.factor(pheno$batch), mod = modCombat, par.prior = TRUE, prior.plots = FALSE)
-  write.table(adjusted_data, output_path, sep = '\t')
+if (length(unique(pheno$batch)) > 1 && max(freqs_of_batches$Freq) > 1) { # something to adjust
+    modCombat = model.matrix(~1, data = pheno)
+    adjusted_data = ComBat(dat = sample_matrix, batch = as.factor(pheno$batch), mod = modCombat, par.prior = TRUE, prior.plots = FALSE)
+    write.table(adjusted_data, output_path, sep = '\t')
 } else { # everything comes from the same batch, nothing to do
     print("Don't normalize because same batch!")
   write.table(sample_matrix, output_path, sep = '\t')
