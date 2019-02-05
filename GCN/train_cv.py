@@ -86,7 +86,9 @@ if __name__ == "__main__":
     # preprocess features
     num_feat = features.shape[1]
     if num_feat > 1:
-        features = utils.preprocess_features(lil_matrix(features))
+        #features = utils.preprocess_features(lil_matrix(np.abs(features)))
+        print ("Not row-normalizing because we have negative input...")
+        features = utils.sparse_to_tuple(lil_matrix(features))
     else:
         print("Not row-normalizing features because feature dim is {}".format(num_feat))
         features = utils.sparse_to_tuple(lil_matrix(features))
