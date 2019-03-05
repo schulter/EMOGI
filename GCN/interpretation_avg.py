@@ -200,7 +200,7 @@ def get_attributions(de, model, idx_gene, placeholders, features, support):
                       xs=[features, *support])
 
 
-def interpretation(model_dirs, gene, out_dir, adj, features, y_train, support,
+def interpretation(model_dirs, gene, adj, features, y_train, support,
                    node_names, feature_names, genes_pos, num_supports, args, raw_features,
                    predicted_probs):
     attributions = [[] for _ in range(num_supports+1)]
@@ -358,20 +358,22 @@ def contribution_plots(model_dir, genes, out_dir):
     # do actual interpretation work
     for gene in genes:
         # compute contributions
-        attr = interpretation(model_dirs, gene, out_dir, adj, features, y_train, support,
+        attr = interpretation(model_dirs, gene, adj, features, y_train, support,
                               node_names, feature_names, genes_pos, num_supports, args,
                               np.matrix(raw_features), predicted_probs)
         # get predicted probability and label for the gene (positive or not)
+        plot_title = None
         for line in predicted_probs:
             if line[1] == gene:
                 plot_title = (line[2], round(float(line[-2]), 3))
                 break
-        idx_gene = node_names.index(gene) # has to exist because LRP ran through
-        attr_mean = [np.mean(x, axis=0) for x in attr]
-        attr_std = [np.std(x, axis=0) for x in attr]
-        save_average_plots(attr_mean, attr_std, idx_gene, adj, node_names,
-                            out_dir, np.matrix(raw_features), genes_pos,
-                            feature_names, plot_title)
+        if not plot_title is None:
+            idx_gene = node_names.index(gene) # has to exist because LRP ran through
+            attr_mean = [np.mean(x, axis=0) for x in attr]
+            attr_std = [np.std(x, axis=0) for x in attr]
+            save_average_plots(attr_mean, attr_std, idx_gene, adj, node_names,
+                                out_dir, np.matrix(raw_features), genes_pos,
+                                feature_names, plot_title)
 
 
 def compute_feature_contribution(model_dir, genes, agg_fun=np.mean):
@@ -391,8 +393,8 @@ def compute_feature_contribution(model_dir, genes, agg_fun=np.mean):
 
     Returns:
     The mean of the feature contributions across CV runs as numpy array.
-    This has the same shape as the adjacency matrix and also the same index as
-    the node_names in the hdf5 file.
+    Has shape genes x features and also the same index as the node_names
+    in the hdf5 file.
     """
     # get all relevant data from model directory
     args, _ = load_hyper_params(model_dir)
@@ -403,7 +405,7 @@ def compute_feature_contribution(model_dir, genes, agg_fun=np.mean):
 
     feature_contributions_all = []
     for gene in genes:
-        attr = interpretation(model_dirs, gene, None, adj, features, y_train, support,
+        attr = interpretation(model_dirs, gene, adj, features, y_train, support,
                               node_names, feature_names, genes_pos, num_supports, args,
                               np.matrix(raw_features), predicted_probs)
         feature_contributions_all.append(agg_fun(attr[0], axis=0))
@@ -411,7 +413,7 @@ def compute_feature_contribution(model_dir, genes, agg_fun=np.mean):
 
 
 
-def compute_neighbor_contribution(model_dir, genes):
+def compute_neighbor_contribution(model_dir, genes, agg_fun=np.mean):
     """Get the contribution of neighboring genes for a given gene.
     This function computes LRP contributions for the whole network
     but only sums the neighbor contributions across all supports,
@@ -424,11 +426,14 @@ def compute_neighbor_contribution(model_dir, genes):
                         `hyper_params.txt` and `ensemble_predictions.tsv`
     genes:              A list of strings containing Hugo symbols of genes.
                         Those have to be present in the ensemble prediction file.
+    agg_fun:            An aggregation function to average across the 10 CV folds.
+                        Default is np.mean.
 
     Returns:
-    The sum of the neighbor contributions as numpy array. This has the same
-    shape as the adjacency matrix and also the same index as the node_names
-    in the hdf5 file.
+    The sum of the neighbor contributions across supports and as list of numpy arrays.
+    The folds are aggregated according to agg_fun.
+    Matrices for each gene has the same shape as the adjacency matrix and also the same 
+    index as the node_names in the hdf5 file.
     """
     # get all relevant data from model directory
     args, _ = load_hyper_params(model_dir)
@@ -439,18 +444,66 @@ def compute_neighbor_contribution(model_dir, genes):
 
     neighbor_matrices_all = []
     for gene in genes:
-        attr = interpretation(model_dirs, gene, None, adj, features, y_train, support,
+        attr = interpretation(model_dirs, gene, adj, features, y_train, support,
+                              node_names, feature_names, genes_pos, num_supports, args,
+                              np.matrix(raw_features), predicted_probs)
+        # first attribution are the feature contributions, the rest are the
+        # different support matrices for each fold.
+        # I can just sum them up for now maybe and average the folds?
+        # TODO sign of support matrices?
+        network_weights = np.array([agg_fun(i, axis=0)
+                                    for i in attr[1:]]).sum(axis=0)
+        neighbor_matrices_all.append(network_weights)
+
+    return neighbor_matrices_all
+
+
+def compute_all_contributions(model_dir, genes, agg_fun_features=np.mean, agg_fun_neighbors=np.mean):
+    """Get contributions of neighbors and features for a given gene.
+    This function computes LRP contributions for the whole network,
+    sums the neighbor contributions across all supports and returns
+    it together with the feature contributions.
+
+    Parameters:
+    ----------
+    model_dir:          Training directory containing all CV runs as sub-dirs
+                        as well as a hyper_parameter file called
+                        `hyper_params.txt` and `ensemble_predictions.tsv`
+    genes:              A list of strings containing Hugo symbols of genes.
+                        Those have to be present in the ensemble prediction file.
+    agg_fun_features:   An aggregation function to average across the 10 CV folds.
+                        Default is np.mean.
+    agg_fun_neighbors:  Similar to `agg_fun_features` but for the neighbor
+                        contributions. Default is again np.mean.
+
+    Returns:
+    The summed neighbor contribution across supports and feature contribution.
+    Both are aggregated according to their respective aggregation function.
+    Returns a list and each element of the list is a tuple containing the
+    feature contribution and neighbor contribution for a gene.
+    @see compute_neighbor_contributions(), @see compute_feature_ccontributions()
+    """
+    # get all relevant data from model directory
+    args, _ = load_hyper_params(model_dir)
+    adj, features, raw_features, y_train, node_names, feature_names, genes_pos, support, num_supports, predicted_probs = prepare_interpretation(
+        model_dir)
+
+    model_dirs = get_cv_dirs(model_dir)
+
+    contributions_all = []
+    for gene in genes:
+        attr = interpretation(model_dirs, gene, adj, features, y_train, support,
                               node_names, feature_names, genes_pos, num_supports, args,
                               np.matrix(raw_features), predicted_probs)
         # first attribution are the feature contributions, the rest are the
         # different support matrices. I can just sum them up for now mybe?
         # TODO sign of support matrices?
-        network_weights = np.array([i.mean(axis=0)
+        network_weights = np.array([agg_fun_neighbors(i, axis=0)
                                     for i in attr[1:]]).sum(axis=0)
-        print(network_weights.shape)
-        neighbor_matrices_all.append(network_weights)
+        feature_contributions = agg_fun_features(attr[0], axis=0)
+        contributions_all.append((feature_contributions, network_weights))
 
-    return network_weights
+    return contributions_all
 
 
 def main():
