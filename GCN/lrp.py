@@ -266,7 +266,7 @@ class LRP:
 
 
     def plot_lrp(self, gene_names, n_processes=1):
-        """ Perform and plot LRP attributions for a list of genes.
+        """ Perform LRP and plot attributions for a list of genes.
 
         This function performs LRP for a list of genes and saves the feature attributions
         and the attributions of the most import network neighbors as a plot to disk. LRP
@@ -302,7 +302,7 @@ class LRP:
                     p.join()
 
 
-    def get_lrp_matrices(self, gene_name):
+    def compute_lrp(self, gene_name):
         """ Perform LRP for a single gene and return the results.
 
         LRP is being performed for all CV folds of the gene of interest.
@@ -324,15 +324,59 @@ class LRP:
         return features_mean, features_std, attr_mean[1:], attr_std[1:]
 
 
+    def compute_lrp_all_genes(self):
+        """ Perform LRP for all genes and save summarized results.
+
+        This function calls compute_lrp() for every gene. Gene order is given by the
+        gene_names list from the HDF5 data. The following output files will be created:
+
+        feat_mean_all.npy
+            -> mean attributions, matrix of shape (number of genes, number of features),
+               each row represents the LRP run of the respective gene
+        feat_std_all.npy
+            -> std of attributions, rest as above
+        support_X_mean_sum.npy
+            -> mean support attributions summed over all genes,
+               matrix of shape (number of genes, number of genes),
+               one output file per level of support (i.e. X == 0, 1, 2, etc.)
+        """
+        # initialize matrices that will be filled over time
+        feat_mean_all = np.zeros(self.features.shape)
+        feat_std_all = np.zeros(self.features.shape)
+        support_mean_sum = [np.zeros(self.network.shape) for _ in range(len(self.support))]
+
+        # save matrices in numpy format
+        def save_to_disk():
+            np.save(os.path.join(self.out_dir, "feat_mean_all.npy"), feat_mean_all)
+            np.save(os.path.join(self.out_dir, "feat_std_all.npy"), feat_std_all)
+            for idx, mat in enumerate(support_mean_sum):
+                np.save(os.path.join(self.out_dir, "support_{}_mean_sum.npy".format(idx)), mat)
+
+        # run LRP for every gene and save results into aforementioned matrices
+        for idx_g, gene_name in enumerate(self.node_names):
+            feat_mean, feat_std, supp_mean, _ = self.compute_lrp(gene_name)
+            feat_mean_all[idx_g,:] = feat_mean
+            feat_std_all[idx_g,:] = feat_std
+            for idx_s in range(len(support_mean_sum)):
+                support_mean_sum[idx_s] += supp_mean[idx_s]
+            # save progress every 500 genes
+            if idx_g > 0 and idx_g % 500 == 0:
+                save_to_disk()
+                print("{} genes done.".format(idx_g+1))
+            if idx_g == 5: break
+        # save final results
+        save_to_disk()
 
 
 def main():
     interpreter = LRP(model_dir="/project/lincrnas/roman/diseasegcn/data/GCN/training/2019_02_13_15_36_01/")
-    interpreter.plot_lrp(["BRCA2", "TP53", "TTN", "EP300", "FLNA"], n_processes=3)
-    feat_mean, feat_std, support_mean, support_std = interpreter.get_lrp_matrices("TP53")
+    # examples:
+    # interpreter.plot_lrp(["STIM1", "TRPC1", "NOS1", "ATP2B4", "ABCC9", "KCNJ11"], n_processes=3)
+    # feat_mean, feat_std, support_mean, support_std = interpreter.compute_lrp("TP53")
+    # interpreter.compute_lrp_all_genes()
 
     # TODO
-    # class functionality to get LRP attris for ALL proteins (without plots) saved as hdf5
+    # parallelize compute_lrp_all_genes somehow?
     # command line interface
 
 if __name__ == "__main__":
