@@ -13,7 +13,6 @@ from multiprocessing import Process
 from deepexplain.tensorflow import DeepExplain
 sys.path.append(os.path.abspath('../GCN'))
 from my_gcn import MYGCN
-from time import time
 
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
@@ -363,7 +362,6 @@ class LRP:
             if idx_g > 0 and idx_g % 500 == 0:
                 save_to_disk()
                 print("{} genes done.".format(idx_g+1))
-            if idx_g == 5: break
         # save final results
         save_to_disk()
 
