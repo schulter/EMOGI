@@ -9,6 +9,23 @@ from sklearn.metrics import precision_recall_curve, average_precision_score
 import matplotlib.pyplot as plt
 
 
+def str_to_num(s):
+    try:
+        return int(s)
+    except ValueError:
+        try:
+            return float(s)
+        except ValueError:
+            return s
+
+
+def _plot_hide_top_right(ax):
+    ax.spines['right'].set_visible(False)
+    ax.spines['top'].set_visible(False)
+    ax.yaxis.set_ticks_position('left')
+    ax.xaxis.set_ticks_position('bottom')
+
+
 def parse_index_file(filename):
     """Parse index file."""
     index = []
