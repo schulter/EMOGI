@@ -192,11 +192,16 @@ class LRP:
             if line[1] == gene_name:
                 # (gene name, true label, mean prediction)
                 plot_title = (gene_name, line[2], round(float(line[-2]), 3))
-        fig, ax = plt.subplots(nrows=3, ncols=1, figsize=(12, 6))
+        n_neighbors = 3 # number of top neighbors to plot
+        nrows = 3 + n_neighbors + 1
+        fig, ax = plt.subplots(nrows=nrows, ncols=1, figsize=(12, nrows*2+3))
         # original feature plot
         idx_gene = self.node_names.index(gene_name)
         x = np.arange(len(self.feature_names))
-        ax[0].set_title("{} (label = {}, mean prediction = {})".format(*plot_title))
+        ax[0].set_title("{} (label = {}, mean prediction = {}, LRP sum total = {}, LRP sum gene = {})".format(
+            *plot_title,
+            round(float(attributions_mean[0].sum()), 3),
+            round(float(attributions_mean[0][idx_gene,:].sum()), 3)))
         ax[0].bar(x, self.features_raw[idx_gene, :], color="#67a9cf")
         ax[0].set_xticks(x)
         ax[0].set_xticklabels(self.feature_names)
@@ -210,24 +215,55 @@ class LRP:
         for i, val in enumerate(attributions_mean[0][idx_gene, :]):
             if val < 0:
                 ax[1].patches[i].set_facecolor("#d8b365")
-        # most important neighbors
-        neighbors = most_important_pos + most_important_neg[::-1]
-        x = np.arange(len(neighbors))
-        ax[2].bar(x, [i[1][0] for i in neighbors], color="#5ab4ac",
-                  yerr=[i[1][1] for i in neighbors])
+        # most important neighbors according LRP feature matrix (rows with highest sums)
+        top_n = 20
+        sums = attributions_mean[0].sum(axis=1)
+        idx_top = np.argpartition(sums, -top_n)[-top_n:]
+        idx_top = idx_top[np.argsort(sums[idx_top])][::-1]
+        x = np.arange(top_n)
+        x_labels = [self.node_names[i] for i in idx_top]
+        ax[2].bar(x, sums[idx_top], color="#5ab4ac")
+        ax[2].set_xticklabels(x_labels)
         ax[2].set_xticks(x)
-        ax[2].set_xticklabels([i[0] for i in neighbors])
-        ax[2].set_ylabel("LRP attribution")
+        ax[2].set_ylabel("LRP sum features")
+        for i, val in enumerate(sums[idx_top]):
+            if val < 0:
+                ax[1].patches[i].set_facecolor("#d8b365")
+        for i, gene in enumerate(x_labels):
+            if gene == gene_name:
+                ax[2].get_xticklabels()[i].set_color("blue")
+            elif gene in self.genes_pos:
+                ax[2].get_xticklabels()[i].set_color("red")
+        # LRP attributions of three most important neighbors according to LRP row sums
+        x = np.arange(len(self.feature_names))
+        for k, idx in enumerate(idx_top[:n_neighbors]):
+            ax[3+k].set_title(self.node_names[idx])
+            ax[3+k].bar(x, attributions_mean[0][idx, :], color="#5ab4ac",
+                          yerr=attributions_std[0][idx, :])
+            ax[3+k].set_xticklabels(self.feature_names)
+            ax[3+k].set_xticks(x)
+            ax[3+k].set_ylabel("LRP attribution")
+            for i, val in enumerate(attributions_mean[0][idx, :]):
+                if val < 0:
+                    ax[3+k].patches[i].set_facecolor("#d8b365")
+        # most important neighbors according to LRP support
+        neighbors = most_important_pos + most_important_neg[::-1]
+        ax[nrows-1].set_title("LRP support matrices")
+        x = np.arange(len(neighbors))
+        ax[nrows-1].bar(x, [i[1][0] for i in neighbors], color="#5ab4ac",
+                  yerr=[i[1][1] for i in neighbors])
+        ax[nrows-1].set_xticks(x)
+        ax[nrows-1].set_xticklabels([i[0] for i in neighbors])
+        ax[nrows-1].set_ylabel("LRP attribution")
         for i, val in enumerate([i[1][0] for i in neighbors]):
             if val < 0:
-                ax[2].patches[i].set_facecolor("#d8b365")
+                ax[nrows-1].patches[i].set_facecolor("#d8b365")
         for i, (gene, val) in enumerate(neighbors):
             if gene in self.genes_pos:
-                ax[2].get_xticklabels()[i].set_color("red")
+                ax[nrows-1].get_xticklabels()[i].set_color("red")
         # finalize
-        utils._plot_hide_top_right(ax[0])
-        utils._plot_hide_top_right(ax[1])
-        utils._plot_hide_top_right(ax[2])
+        for i in range(nrows):
+            utils._plot_hide_top_right(ax[i])
         for axis in ax:
             for tick in axis.get_xticklabels():
                 tick.set_rotation(90)
@@ -367,14 +403,14 @@ class LRP:
 
 
 def main():
-    interpreter = LRP(model_dir="/project/lincrnas/roman/diseasegcn/data/GCN/training/2019_02_13_15_36_01/")
+    pass
     # examples:
-    # interpreter.plot_lrp(["STIM1", "TRPC1", "NOS1", "ATP2B4", "ABCC9", "KCNJ11"], n_processes=3)
+    # interpreter = LRP(model_dir="/project/lincrnas/roman/diseasegcn/data/GCN/training/2019_03_06_15_45_33/")
+    # interpreter.plot_lrp(["TP53", "KRAS", "TTN", "MYC", "TWIST1", "HIST1H3E", "APC"], n_processes=4)
     # feat_mean, feat_std, support_mean, support_std = interpreter.compute_lrp("TP53")
     # interpreter.compute_lrp_all_genes()
 
     # TODO
-    # parallelize compute_lrp_all_genes somehow?
     # command line interface
 
 if __name__ == "__main__":
