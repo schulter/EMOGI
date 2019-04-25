@@ -213,8 +213,10 @@ class MYGCN (Model):
     def get_performance_metrics(self):
         with tf.variable_scope("evaluation"):
             pred = self.predict()
-            _, acc = tf.metrics.accuracy(self.placeholders['labels'],
-                                         tf.greater(pred, 0.5))
+            _, acc = tf.metrics.accuracy(labels=self.placeholders['labels'],
+                                         predictions=tf.greater(pred, 0.5),
+                                         weights=self.placeholders['labels_mask']
+                                         )
             _, auroc = tf.metrics.auc(labels=self.placeholders['labels'],
                                     predictions=pred,
                                     weights=self.placeholders['labels_mask'],
