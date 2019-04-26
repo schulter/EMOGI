@@ -67,22 +67,52 @@ def parse_args():
     args = parser.parse_args()
     return args
 
-if __name__ == "__main__":
-    args = parse_args()
+
+
+def single_cv_run(session, support, num_supports, features, y_train, y_test, train_mask, test_mask, node_names, feature_names, args, model_dir):
     hidden_dims = [int(x) for x in args.hidden_dims]
+    placeholders = {
+        'support': [tf.sparse_placeholder(tf.float32) for _ in range(num_supports)],
+        'features': tf.sparse_placeholder(tf.float32, shape=features[2]),
+        'labels': tf.placeholder(tf.float32, shape=(None, y_train.shape[1])),
+        'labels_mask': tf.placeholder(tf.int32),
+        'dropout': tf.placeholder_with_default(0., shape=()),
+        'num_features_nonzero': tf.placeholder(tf.int32)
+    }
+    # construct model (including computation graph)
+    model = MYGCN(placeholders=placeholders,
+                input_dim=features[2][1],
+                learning_rate=args.lr,
+                weight_decay=args.decay,
+                num_hidden_layers=len(hidden_dims),
+                hidden_dims=hidden_dims,
+                pos_loss_multiplier=args.loss_mul,
+                logging=True
+    )
+    # fit the model
+    model = fit_model(model, session, features, placeholders,
+                      support, args.epochs, args.dropout,
+                      y_train, train_mask, y_test, test_mask,
+                      model_dir)
+    # Compute performance on test set
+    performance_ops = model.get_performance_metrics()
+    session.run(tf.local_variables_initializer())
+    d = utils.construct_feed_dict(features, support, y_test,
+                                  test_mask, placeholders)
+    test_performance = session.run(performance_ops, feed_dict=d)
+    print("Validataion/test set results:", "loss=", "{:.5f}".format(test_performance[0]),
+        "accuracy=", "{:.5f}".format(
+            test_performance[1]), "aupr=", "{:.5f}".format(test_performance[2]),
+        "auroc=", "{:.5f}".format(test_performance[3]))
 
-    if not args.data.endswith('.h5'):
-        print("Data is not hdf5 container. Exit now.")
-        sys.exit(-1)
+    # predict all nodes (result from algorithm)
+    predictions = predict(session, model, features, support, y_test,
+                          test_mask, placeholders)
+    gcnIO.save_predictions(model_dir, node_names, predictions)
+    gcnIO.write_train_test_sets(model_dir, y_train, y_test, train_mask, test_mask)
+    return test_performance
 
-    output_dir = gcnIO.create_model_dir()
-
-    # load data and preprocess it
-    input_data_path = args.data
-    data = gcnIO.load_hdf_data(input_data_path, feature_name='features')
-    adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feature_names = data
-    print("Read data from: {}".format(input_data_path))
-
+def run_all_cvs(adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feature_names, args, output_dir):
     # preprocess features
     num_feat = features.shape[1]
     if num_feat > 1:
@@ -104,51 +134,32 @@ if __name__ == "__main__":
                                                     folds=args.cv_runs
     )
 
-
+    performance_measures = []
     for cv_run in range(args.cv_runs):
-        tf.reset_default_graph()
-        # create placeholders
-        placeholders = {
-            'support': [tf.sparse_placeholder(tf.float32) for _ in range(num_supports)],
-            'features': tf.sparse_placeholder(tf.float32, shape=features[2]),
-            'labels': tf.placeholder(tf.float32, shape=(None, y_all.shape[1])),
-            'labels_mask': tf.placeholder(tf.int32),
-            'dropout': tf.placeholder_with_default(0., shape=()),
-            'num_features_nonzero': tf.placeholder(tf.int32)
-        }
-        y_train, y_test, train_mask, test_mask = k_sets[cv_run]
         model_dir = os.path.join(output_dir, 'cv_{}'.format(cv_run))
-        # start session and do training
+        y_tr, y_te, tr_mask, te_mask = k_sets[cv_run]
         with tf.Session() as sess:
-            model = MYGCN(placeholders=placeholders,
-                        input_dim=features[2][1],
-                        learning_rate=args.lr,
-                        weight_decay=args.decay,
-                        num_hidden_layers=len(hidden_dims),
-                        hidden_dims=hidden_dims,
-                        pos_loss_multiplier=args.loss_mul,
-                        logging=True
-            )
-            # fit the model
-            model = fit_model(model, sess, features, placeholders,
-                              support, args.epochs, args.dropout,
-                              y_train, train_mask, y_test, test_mask,
-                              model_dir)
-            # Compute performance on test set
-            performance_ops = model.get_performance_metrics()
-            sess.run(tf.local_variables_initializer())
-            d = utils.construct_feed_dict(features, support, y_test,
-                                          test_mask, placeholders)
-            test_performance = sess.run(performance_ops, feed_dict=d)
-            print("Test set results:", "loss=", "{:.5f}".format(test_performance[0]),
-                "accuracy=", "{:.5f}".format(
-                    test_performance[1]), "aupr=", "{:.5f}".format(test_performance[2]),
-                "auroc=", "{:.5f}".format(test_performance[3]))
-
-            # predict all nodes (result from algorithm)
-            predictions = predict(sess, model, features, support, y_test,
-                                  test_mask, placeholders)
-        gcnIO.save_predictions(model_dir, node_names, predictions)
-        gcnIO.write_train_test_sets(model_dir, y_train, y_test, train_mask, test_mask)
+            val_performance = single_cv_run(sess, support, num_supports, features, y_tr, y_te, tr_mask, te_mask, node_names, feature_names, args, model_dir)
+            performance_measures.append(val_performance)
+        tf.reset_default_graph()
     # save hyper Parameters
     gcnIO.write_hyper_params(args, args.data, os.path.join(output_dir, 'hyper_params.txt'))
+    return performance_measures
+
+
+if __name__ == "__main__":
+    args = parse_args()
+
+    if not args.data.endswith('.h5'):
+        print("Data is not hdf5 container. Exit now.")
+        sys.exit(-1)
+
+    output_dir = gcnIO.create_model_dir()
+
+    # load data and preprocess it
+    input_data_path = args.data
+    data = gcnIO.load_hdf_data(input_data_path, feature_name='features')
+    adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feature_names = data
+    print("Read data from: {}".format(input_data_path))
+    
+    run_all_cvs(adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feature_names, args, output_dir)
