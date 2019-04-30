@@ -11,8 +11,9 @@ import sys
 import math
 from multiprocessing import Process
 from deepexplain.tensorflow import DeepExplain
-sys.path.append(os.path.abspath('../GCN'))
+#sys.path.append(os.path.abspath('../GCN'))
 from my_gcn import MYGCN
+import argparse
 
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
@@ -403,7 +404,33 @@ class LRP:
 
 
 def main():
-    pass
+    parser = argparse.ArgumentParser(
+        description='Compute LRP scores for genes and neighbors')
+    parser.add_argument('-m', '--modeldir',
+                        help='Path to the trained model directory',
+                        dest='model_dir',
+                        required=True)
+    parser.add_argument('-g', '--genes',
+                        help='List of gene symbols for which to do interpretation',
+                        nargs='+',
+                        dest='genes',
+                        default=None)
+    args = parser.parse_args()
+
+    # get some genes to do interpretation for
+    if args.genes is None:
+        genes = ["CEBPB", "CHD1", "CHD3", "CHD4", "TP53", "RBL2", "BRCA1",
+                 "BRCA2", "NOTCH2", "NOTCH1", "ZNF24", "SIM1", "HSP90AA1",
+                 "ARNT", "KRAS", "SMAD6", "SMAD4",  "STAT1", "MGMT", "NCOR2",
+                 "RUNX1", "KAT7", "IDH1", "IDH2", "DROSHA", "WRN", "FOXA1",
+                 "RAC1", "BIRC3", "DNM2", "MYC", "BRAF", "EGFR", "FGFR1",
+                 "FGFR2", "FGFR3",
+                 "APC", "ERBB3", "ERBB2", "AR", "NRAS", "HDAC3"]
+    else:
+        genes = args.genes
+
+    interpreter = LRP(model_dir=args.model_dir)
+    interpreter.plot_lrp(genes)
     # examples:
     # interpreter = LRP(model_dir="/project/lincrnas/roman/diseasegcn/data/GCN/training/2019_03_06_15_45_33/")
     # interpreter.plot_lrp(["TP53", "KRAS", "TTN", "MYC", "TWIST1", "HIST1H3E", "APC"], n_processes=4)
