@@ -20,59 +20,6 @@ from train_gcn import fit_model, predict
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
-def masked_aupr_score(y_true, y_score, mask):
-    y_true_masked = y_true[:, 0][mask > 0.5]
-    y_score_masked = y_score[:, 0][mask > 0.5]
-    return average_precision_score(y_true=y_true_masked, y_score=y_score_masked)
-
-def evaluate(model, session, features, support, labels, mask, placeholders):
-    feed_dict_val = utils.construct_feed_dict(features, support, labels, mask, placeholders)
-    loss, acc = sess.run([model.loss, model.accuracy], feed_dict=feed_dict_val)
-    return loss, acc
-
-
-def run_cv(model, sess, features, num_runs, params, placeholders, support, y, mask):
-    """Run one parameter setting with CV and evaluate on validation data.
-    """
-    # where the results go
-    accs = []
-    losses = []
-    auprs = []
-    num_preds = []
-
-    k_sets = gcnPreprocessing.cross_validation_sets(y=y,
-                                                    mask=mask,
-                                                    folds=num_runs
-    )
-    for cv_run in range(num_runs):
-        # select some training genes randomly
-        y_train, y_val, train_mask, val_mask = k_sets[cv_run]
-
-
-        merged = tf.summary.merge_all()
-        sess.run(tf.group(tf.global_variables_initializer(),
-                 tf.local_variables_initializer()))
-        for epoch in range(params['epochs']):
-            feed_dict = utils.construct_feed_dict(features, support, y_train,
-                                                      train_mask, placeholders)
-            feed_dict.update({placeholders['dropout']: params['dropout']})
-            outs = sess.run([model.opt_op],
-                            feed_dict=feed_dict)
-        # Testing
-        val_loss, val_acc = evaluate(model, sess, features, support,
-                                       y_val, val_mask, placeholders)
-        predictions = predict(model, sess, features, support,
-                              y_val, val_mask, placeholders)
-        num_pos_pred = (predictions[:, 0] > .5).sum()
-        num_preds.append(num_pos_pred)
-        accs.append(val_acc)
-        losses.append(val_loss)
-        aupr = masked_aupr_score(y_test, predictions, test_mask)
-        auprs.append(aupr)
-    print ("Val AUPR: {}".format(np.mean(auprs)))
-    return accs, losses, num_preds, auprs
-
-
 def run_model(session, params, adj, num_cv, features, y, mask, output_dir):
     """
     """
@@ -137,65 +84,123 @@ def run_model(session, params, adj, num_cv, features, y, mask, output_dir):
 
 
 def write_hyper_param_dict(params, file_name):
-    with open(file_name, 'w') as f:
-        for k, v in params.items():
-            f.write('{}\t{}\n'.format(k, v))
-    print("Hyper-Parameters saved to {}".format(file_name))
+    with open(file_name, 'wb') as f:
+        pickle.dump(params, f)
 
+def load_hyper_param_dict(file_name):
+    with open(file_name, 'rb') as f:
+        params = pickle.load(f)
+    return params
+
+def write_performances(performance, file_name):
+    write_hyper_param_dict(performance, file_name)
+
+def load_performances(file_name):
+    return load_hyper_param_dict(file_name)
+
+def check_param_already_done(training_dir, params):
+    for setting in os.listdir(training_dir):
+        if setting.startswith('params'):
+            other_params = load_hyper_param_dict(os.path.join(training_dir, setting, 'params.txt'))
+            if other_params == params:
+                return load_performances(os.path.join(training_dir, setting, 'performance.txt'))
+    return None
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='Train GCN model and save to file')
+    parser.add_argument('-d', '--data', help='Path to the data container',
+                        dest='data',
+                        type=str,
+                        required=True
+                        )
+    parser.add_argument('-cv', '--cv_runs', help='Number of cross validation runs',
+                    dest='cv_runs',
+                    default=5,
+                    type=int
+                    )
+    parser.add_argument('-o', '--output_dir', help='Number of cross validation runs',
+                    dest='output_dir',
+                    default=None,
+                    type=str
+                    )
+    args = parser.parse_args()
+    return args
 
 if __name__ == "__main__":
+    args = parse_args()
     print ("Loading Data...")
-    cv_runs = 5
-    data = gcnIO.load_hdf_data('../data/pancancer/iref_multiomics_norm_methnewpromonly_ncglabels_fpkm.h5',
+    cv_runs = args.cv_runs
+    data = gcnIO.load_hdf_data(args.data,
                                feature_name='features')
     adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feat_names = data
     num_nodes = adj.shape[0]
     num_feat = features.shape[1]
 
     if num_feat > 1:
-        features = utils.preprocess_features(lil_matrix(features))
+        #features = utils.preprocess_features(lil_matrix(features))
+        print ("Not row-normalizing...")
+        features = utils.sparse_to_tuple(lil_matrix(features))
     else:
         print ("Not row-normalizing features because feature dim is {}".format(num_feat))
         features = utils.sparse_to_tuple(lil_matrix(features))
 
     params = {'support':[1, 2],
-              'dropout':[0.1, 0.25, .5, 0.75],
-              'hidden_dims': [[10, 20, 30, 40, 50], [30, 20, 10, 5, 3],
-                              [30, 30, 30, 30, 30], [20, 40, 100, 20, 10],
-                              [50, 100], [50, 25, 10], [20, 40, 20]],
-              'loss_mul': [20, 30, 40],
-              'learningrate':[0.001],
-              'epochs':[3000],
-              'weight_decay':[5e-4]
+              'dropout':[0.5, 0.7, 0.3],
+              'hidden_dims': [[20, 40], [50, 40, 30, 20, 10],
+                              [50, 100]],
+              'loss_mul': [10, 30, 60, 100, 200],
+              'learningrate':[0.001, 0.01],
+              'epochs':[2000],
+              'weight_decay':[5e-2, 0.1]
               }
     """
-    params = {'support':[1, 2],
-              'dropout':[.1],
-              'hidden_dims':[[50, 40]],
+    params = {'support':[1],
+              'dropout':[.1, .5, .1],
+              'hidden_dims':[[50, 40], [40, 20]],
               'loss_mul':[1],
               'learningrate':[.1],
-              'epochs':[100],
+              'epochs':[30],
               'weight_decay':[0.05]
               }
     """
 
     num_of_settings = len(list(ParameterGrid(params)))
     print ("Grid Search: Trying {} different parameter settings...".format(num_of_settings))
-    param_num = 1
+    param_num = 0
+    # create output directory or set existing one
+    if args.output_dir is None:
+        out_dir = gcnIO.create_model_dir()
+    elif os.path.isdir(args.output_dir):
+        out_dir = args.output_dir
+    else:
+        print ("Cannot output to {} because it is not a directory.".format(args.output_dir))
+        sys.exit(-1)
     # create session, train and save afterwards
     performances = []
-    out_dir = gcnIO.create_model_dir()
     for param_set in list(ParameterGrid(params)):
-        param_dir = os.path.join(out_dir, 'params_{}'.format(param_num))
-        with tf.Session() as sess:
-            accs, losses, numpreds, auprs = run_model(sess, param_set, adj, 5,
-                                                      features, y_train, train_mask, param_dir)
-        performances.append((accs, losses, numpreds, auprs, param_set))
-        write_hyper_param_dict(param_set, os.path.join(param_dir, 'params.txt'))
-        print ("[{} out of {} combinations]: {}".format(param_num, num_of_settings, param_set))
+        performance_already_done = check_param_already_done(out_dir, param_set)
+        if not performance_already_done is None:
+            p = (performance_already_done['accuracy'], performance_already_done['loss'],
+                 performance_already_done['num_predicted'], performance_already_done['aupr'],
+                 param_set)
+            performances.append(p)
+            print ("Combination was already processed earlier.")
+        else:
+            param_dir = os.path.join(out_dir, 'params_{}'.format(param_num))
+
+            with tf.Session() as sess:
+                accs, losses, numpreds, auprs = run_model(sess, param_set, adj, 5,
+                                                        features, y_train, train_mask, param_dir)
+            performance_dict = {'accuracy':accs, 'loss':losses,
+                                'num_predicted':numpreds, 'aupr':auprs}
+            performances.append((accs, losses, numpreds, auprs, param_set))
+            write_hyper_param_dict(param_set, os.path.join(param_dir, 'params.pkl'))
+            write_performances(performance_dict, os.path.join(param_dir, 'performance.pkl'))
+            tf.reset_default_graph()
         param_num += 1
-        tf.reset_default_graph()
+        print ("[{} out of {} combinations]: {}".format(param_num, num_of_settings, param_set))
     # write results from gridsearch to file
-    out_name = '../data/gridsearch/gridsearchcv_results_multiomics_norm.pkl'
+    out_name = '../data/gridsearch/gridsearchcv_results_multiomics_IREF_mutgenelengthnorm.pkl'
     with open(out_name, 'wb') as f:
         pickle.dump(performances, f)
