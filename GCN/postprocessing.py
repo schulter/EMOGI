@@ -1,49 +1,36 @@
 # classics
 import numpy as np
 import pandas as pd
-import random, h5py
-import tensorflow as tf
+import h5py
 import argparse
 
 # my tool and sparse stuff for feature extraction
 import utils, gcnIO
 import sys, os
-sys.path.append(os.path.abspath('../GCN'))
-from my_gcn import MYGCN
-from scipy.sparse import csr_matrix, lil_matrix
-from scipy.sparse import coo_matrix
-import scipy.sparse as sp
 from scipy import interp
 
 sys.path.append(os.path.abspath('../pagerank'))
 import pagerank
 
 # sklearn imports
-from sklearn.metrics import roc_curve, accuracy_score, roc_auc_score
+from sklearn.metrics import roc_curve, roc_auc_score
 from sklearn.metrics import precision_recall_curve, average_precision_score, auc
-from sklearn.metrics import recall_score, precision_score, confusion_matrix
 from sklearn.linear_model import LogisticRegression
 from sklearn import svm
 from sklearn.ensemble import RandomForestClassifier
 
 from functools import reduce
 
-from sklearn.manifold import TSNE
-from sklearn.decomposition import PCA
-
 # plotting
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-import seaborn
-import matplotlib.mlab as mlab
+import seaborn as sns
 import matplotlib_venn
 plt.rc('font', family='Times New Roman')
 
 # set options
 np.set_printoptions(suppress=True)
 pd.set_option('display.float_format', lambda x: '%.3f' % x)
-
-bestSplit = lambda x: (round(math.sqrt(x)), math.ceil(x / round(math.sqrt(x))))
 
 
 def compute_ensemble_predictions(model_dir):
@@ -58,12 +45,17 @@ def compute_ensemble_predictions(model_dir):
     """
     args, data_file = gcnIO.load_hyper_params(model_dir)
     if os.path.isdir(data_file): # FIXME: This is hacky and not guaranteed to work at all!
-        fname = 'IREF_{}.h5'.format(model_dir.strip('/').split('/')[-1])
+        network_name = None
+        for f in os.listdir(data_file):
+            if network_name is None:
+                network_name = f.split('_')[0].upper()
+            else:
+                assert (f.split('_')[0].upper() == network_name)
+        fname = '{}_{}.h5'.format(network_name, model_dir.strip('/').split('/')[-1])
         data_file = os.path.join(data_file, fname)
 
     data = gcnIO.load_hdf_data(data_file)
     network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feat_names = data
-    print ("Data comes from {}".format(data_file))
     pred_all = []
     sets_all = []
     no_cv = 0
@@ -234,7 +226,7 @@ def compute_average_PR_curve(model_dir, pred_all, sets_all):
 
 
 
-def compute_ROC_PR_competitors(model_dir):
+def compute_ROC_PR_competitors(model_dir, verbose=False):
     """Computes ROC and PR curves and compares to base line methods.
 
     This function uses the mean prediction scores and the test set which was
@@ -257,7 +249,13 @@ def compute_ROC_PR_competitors(model_dir):
     # first, get the data from the container
     args, data_file = gcnIO.load_hyper_params(model_dir)
     if os.path.isdir(data_file): # FIXME: This is hacky and not guaranteed to work at all!
-        fname = 'IREF_{}.h5'.format(model_dir.strip('/').split('/')[-1])
+        network_name = None
+        for f in os.listdir(data_file):
+            if network_name is None:
+                network_name = f.split('_')[0].upper()
+            else:
+                assert (f.split('_')[0].upper() == network_name)
+        fname = '{}_{}.h5'.format(network_name, model_dir.strip('/').split('/')[-1])
         data_file = os.path.join(data_file, fname)
     data = gcnIO.load_hdf_data(data_file)
     network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feat_names = data
@@ -274,17 +272,17 @@ def compute_ROC_PR_competitors(model_dir):
     rf = RandomForestClassifier()
     rf.fit(X_train, y_train_svm.reshape(-1))
     pred_rf = rf.predict_proba(X_test)
-    print ("Number of predicted genes in Test set (RF): {}".format(pred_rf.argmax(axis=1).sum()))
+    if verbose: print ("Number of predicted genes in Test set (RF): {}".format(pred_rf.argmax(axis=1).sum()))
     pred_rf_all = rf.predict_proba(features)
-    print ("RF predicts {} genes in total".format(np.argmax(pred_rf_all, axis=1).sum()))
+    if verbose: print ("RF predicts {} genes in total".format(np.argmax(pred_rf_all, axis=1).sum()))
 
     # train logistic regression on the features only and predict for test set and all genes
     logreg = LogisticRegression(class_weight='balanced')
     logreg.fit(X_train, y_train_svm.reshape(-1))
     pred_lr = logreg.predict_proba(X_test)
-    print ("Number of predicted genes in Test set (LogReg): {}".format(pred_lr.argmax(axis=1).sum()))
+    if verbose: print ("Number of predicted genes in Test set (LogReg): {}".format(pred_lr.argmax(axis=1).sum()))
     pred_lr_all = logreg.predict_proba(features)
-    print ("LogReg predicts {} genes in total".format(np.argmax(pred_lr_all, axis=1).sum()))
+    if verbose: print ("LogReg predicts {} genes in total".format(np.argmax(pred_lr_all, axis=1).sum()))
 
     # train pagerank on the network
     scores, names = pagerank.pagerank(network, node_names)
@@ -310,7 +308,7 @@ def compute_ROC_PR_competitors(model_dir):
     # add normalized heat
     heat_df['heat_norm'] = heat_df.heat / heat_df.heat.sum()
     p_0 = heat_df.heat_norm
-    #p_0 = features.mean(axis=1)
+    p_0 = features.mean(axis=1)
     beta = 0.3
     W = network / network.sum(axis=0) # normalize A
     assert (np.allclose(W.sum(axis=0), 1)) # assert that rows/cols sum to 1
@@ -318,6 +316,13 @@ def compute_ROC_PR_competitors(model_dir):
     rwr_ranks = np.argsort(p)[::-1]
     heat_df['rwr_score'] = p
     rwr_pred_test = heat_df[test_mask == 1].rwr_score
+
+    # use MutSigCV -log10 q-values for evaluation of that method
+    mutsigcv_scores = pd.read_csv('../data/pancancer/mutsigcv/mutsigcv_genescores.csv',
+                                  index_col=0, sep='\t').mean(axis=1)
+    nodes = pd.DataFrame(node_names, columns=['ID', 'Name']).set_index('ID')
+    mutsigcv_scores_filled = mutsigcv_scores.reindex(nodes.Name).fillna(0)
+    mutsigcv_pred_test = mutsigcv_scores_filled[mutsigcv_scores_filled.index.isin(nodes[test_mask].Name)]
 
     # finally, do the actual plotting
     linewidth = 4
@@ -341,13 +346,18 @@ def compute_ROC_PR_competitors(model_dir):
     # compute ROC for RWR with HotNet2 heat scores
     fpr_hotnet, tpr_hotnet, thresholds_hotnet = roc_curve(y_true=y_true, y_score=rwr_pred_test)
     roc_auc_hotnet = roc_auc_score(y_true=y_true, y_score=rwr_pred_test)
+    # compute ROC for MutSigCV q-values
+    fpr_ms, tpr_ms, thresholds_ms = roc_curve(y_true=y_true, y_score=mutsigcv_pred_test)
+    roc_auc_ms = roc_auc_score(y_true=y_true, y_score=mutsigcv_pred_test)
+
     # plot ROC curve
     fig = plt.figure(figsize=(14, 8))
     plt.plot(fpr, tpr, lw=linewidth, label='GCN (AUC = {0:.2f})'.format(roc_auc))
     plt.plot(fpr_rf, tpr_rf, lw=linewidth, label='Rand. Forest (AUC = {0:.2f})'.format(roc_auc_rf))
     plt.plot(fpr_lr, tpr_lr, lw=linewidth, label='LogReg (AUC = {0:.2f})'.format(roc_auc_lr))
     plt.plot(fpr_pr, tpr_pr, lw=linewidth, label='PageRank (AUC = {0:.2f})'.format(roc_auc_pr))
-    plt.plot(fpr_hotnet, tpr_hotnet, lw=linewidth, label='HotNet2 (AUC = {0:.2f})'.format(roc_auc_hotnet))
+    plt.plot(fpr_hotnet, tpr_hotnet, lw=linewidth, label='RWR (AUC = {0:.2f})'.format(roc_auc_hotnet))
+    plt.plot(fpr_ms, tpr_ms, lw=linewidth, label='MutSigCV (AUC = {0:.2f})'.format(roc_auc_ms))
     plt.plot([0, 1], [0, 1], color='gray', lw=linewidth, linestyle='--', label='Random')
     plt.xlabel('False Positive Rate', fontsize=labelfontsize)
     plt.ylabel('True Positive Rate', fontsize=labelfontsize)
@@ -377,13 +387,18 @@ def compute_ROC_PR_competitors(model_dir):
     # calculate precision and recall for Hotnet2
     pr_hotnet, rec_hotnet, thresholds_hotnet = precision_recall_curve(y_true=y_true, probas_pred=rwr_pred_test)
     aupr_hotnet = average_precision_score(y_true=y_true, y_score=rwr_pred_test)
+    # compute precision and recall for MutSigCV q-values
+    pr_ms, rec_ms, thresholds_ms = precision_recall_curve(y_true=y_true, probas_pred=mutsigcv_pred_test)
+    aupr_ms = average_precision_score(y_true=y_true, y_score=mutsigcv_pred_test)
+
     fig = plt.figure(figsize=(14, 8))
     plt.plot(rec, pr, lw=linewidth, label='GCN (AUPR = {0:.2f})'.format(aupr))
     #plt.plot(rec_svm, pr_svm, lw=linewidth, label='SVM (AUPR = {0:.2f})'.format(aupr_svm))
     plt.plot(rec_rf, pr_rf, lw=linewidth, label='Rand. Forest (AUPR = {0:.2f})'.format(aupr_rf))
     plt.plot(rec_lr, pr_lr, lw=linewidth, label='LogReg (AUPR = {0:.2f})'.format(aupr_lr))
     plt.plot(rec_pr, pr_pr, lw=linewidth, label='PageRank (AUPR = {0:.2f})'.format(aupr_pr))
-    plt.plot(rec_hotnet, pr_hotnet, lw=linewidth, label='HotNet2 (AUPR = {0:.2f})'.format(aupr_hotnet))
+    plt.plot(rec_hotnet, pr_hotnet, lw=linewidth, label='RWR (AUPR = {0:.2f})'.format(aupr_hotnet))
+    plt.plot(rec_ms, pr_ms, lw=linewidth, label='MutSigCV (AUPR = {0:.2f})'.format(aupr_ms))
     random_y = y_true.sum() / (y_true.sum() + y_true.shape[0] - y_true.sum())
     plt.plot([0, 1], [random_y, random_y], color='gray', lw=3, linestyle='--', label='Random')
     plt.xlabel('Recall', fontsize=20)
@@ -419,7 +434,13 @@ def load_predictions(model_dir):
     # first, get the data from the container
     args, data_file = gcnIO.load_hyper_params(model_dir)
     if os.path.isdir(data_file): # FIXME: This is hacky and not guaranteed to work at all!
-        fname = 'IREF_{}.h5'.format(model_dir.strip('/').split('/')[-1])
+        network_name = None
+        for f in os.listdir(data_file):
+            if network_name is None:
+                network_name = f.split('_')[0].upper()
+            else:
+                assert (f.split('_')[0].upper() == network_name)
+        fname = '{}_{}.h5'.format(network_name, model_dir.strip('/').split('/')[-1])
         data_file = os.path.join(data_file, fname)
     data = gcnIO.load_hdf_data(data_file)
     network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feat_names = data
@@ -476,7 +497,7 @@ def compute_overlap(model_dir, fname_out, set1, set2, threshold=0.5, names=['Set
     v.get_label_by_id('C').set_fontsize(20)
     v.get_label_by_id('10').set_fontsize(20)
     v.get_label_by_id('01').set_fontsize(20)
-    if not v.get_patch_by_id('111') is None or v.get_patch_by_id('101') is None:
+    if not v.get_patch_by_id('111') is None and not v.get_patch_by_id('101') is None:
         v.get_label_by_id('111').set_fontsize(20)
         v.get_label_by_id('101').set_fontsize(20)
         v.get_patch_by_id('111').set_color('#890707')
@@ -509,7 +530,13 @@ def compute_node_degree_relation(model_dir, threshold=0.5):
     # get the data from hdf5 container
     args, data_file = gcnIO.load_hyper_params(model_dir)
     if os.path.isdir(data_file): # FIXME: This is hacky and not guaranteed to work at all!
-        fname = 'IREF_{}.h5'.format(model_dir.strip('/').split('/')[-1])
+        network_name = None
+        for f in os.listdir(data_file):
+            if network_name is None:
+                network_name = f.split('_')[0].upper()
+            else:
+                assert (f.split('_')[0].upper() == network_name)
+        fname = '{}_{}.h5'.format(network_name, model_dir.strip('/').split('/')[-1])
         data_file = os.path.join(data_file, fname)
     data = gcnIO.load_hdf_data(data_file)
     network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feat_names = data
@@ -546,15 +573,31 @@ def parse_args():
     return args
 
 
-
-if __name__ == "__main__":
-    args = parse_args()
-    model_dir = args.train_dir
+def postprocessing(model_dir):
+    """Run all plotting functions.
+    """
     all_preds, all_sets = compute_ensemble_predictions(model_dir)
     compute_node_degree_relation(model_dir, 0.5)
     compute_average_ROC_curve(model_dir, all_preds, all_sets)
     compute_average_PR_curve(model_dir, all_preds, all_sets)
     best_thr_roc, best_thr_pr = compute_ROC_PR_competitors(model_dir)
+
+    # get the data from hdf5 container
+    args, data_file = gcnIO.load_hyper_params(model_dir)
+    if os.path.isdir(data_file): # FIXME: This is hacky and not guaranteed to work at all!
+        network_name = None
+        for f in os.listdir(data_file):
+            if network_name is None:
+                network_name = f.split('_')[0].upper()
+            else:
+                assert (f.split('_')[0].upper() == network_name)
+        fname = '{}_{}.h5'.format(network_name, model_dir.strip('/').split('/')[-1])
+        data_file = os.path.join(data_file, fname)
+
+    data = gcnIO.load_hdf_data(data_file)
+    network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feat_names = data
+    nodes = pd.DataFrame(node_names, columns=['ID', 'Name'])
+    nodes['label'] = np.logical_or(np.logical_or(y_train, y_test), y_val)
 
     # get the NCG cancer genes
     known_cancer_genes = []
@@ -571,21 +614,39 @@ if __name__ == "__main__":
                 candidate_cancer_genes.append(l[1])
             else:
                 candidate_cancer_genes.append(l[0])
-
-    # get the data from hdf5 container
-    args, data_file = gcnIO.load_hyper_params(model_dir)
-    if os.path.isdir(data_file): # FIXME: This is hacky and not guaranteed to work at all!
-        fname = 'IREF_{}.h5'.format(model_dir.strip('/').split('/')[-1])
-        data_file = os.path.join(data_file, fname)
-    data = gcnIO.load_hdf_data(data_file)
-    network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feat_names = data
-    nodes = pd.DataFrame(node_names, columns=['ID', 'Name'])
-    nodes['label'] = np.logical_or(np.logical_or(y_train, y_test), y_val)
-    # compute the overlap with NCG cancer genes and plot
     known_cancer_genes_innet = nodes[nodes.Name.isin(known_cancer_genes)].Name
     candidate_cancer_genes_innet = nodes[nodes.Name.isin(candidate_cancer_genes)].Name
+
+    # get blood cancer genes
+    cgc = pd.read_csv('../data/pancancer/cosmic/cancer_gene_census.csv')
+    cgc.dropna(subset=['Tissue Type'], inplace=True)
+    # find blood cancer genes based on these abbreviations (E=Epithelial, M=Mesenchymal, O=Other, L=Leukaemia/lymphoma)
+    pattern = '|'.join(['E', 'O', 'M', 'E;'])
+    non_blood_cancer_genes = cgc[cgc['Tissue Type'].str.contains(pattern)]
+    blood_cancer_genes = cgc[~cgc['Tissue Type'].str.contains(pattern)]
+    known_cancer_genes_innet_noblood = non_blood_cancer_genes[non_blood_cancer_genes['Gene Symbol'].isin(known_cancer_genes_innet)]['Gene Symbol']
+    known_cancer_genes_innet_blood = blood_cancer_genes[blood_cancer_genes['Gene Symbol'].isin(known_cancer_genes_innet)]['Gene Symbol']
+
+    # compute the Venn diagrams
     compute_overlap(model_dir, 'overlap_NCG.svg',
                     known_cancer_genes_innet, candidate_cancer_genes_innet,
                     best_thr_pr,
                     ['Known Cancer Genes\n(NCG)', 'Candidate Cancer Genes\n(NCG)']
     )
+    compute_overlap(model_dir, 'overlap_leukemia_genes.svg',
+                               known_cancer_genes_innet_blood, known_cancer_genes_innet_noblood,
+                               best_thr_pr,
+                               ['Leukemia Genes', 'Non-Leukemia Genes']
+                              )
+
+if __name__ == "__main__":
+    args = parse_args()
+    if not os.path.isfile(os.path.join(args.train_dir, 'hyper_params.txt')):
+        print ("Detected no hyper parameter file. Assuming training of all omics separately.")
+        for model in os.listdir(args.train_dir):
+            model_dir = os.path.join(args.train_dir, model)
+            if os.path.isdir(model_dir):
+                print ("Running post-processing for {}".format(model_dir))
+                postprocessing(model_dir)
+    else:
+        postprocessing(args.train_dir)
