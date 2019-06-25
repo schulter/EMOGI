@@ -186,11 +186,11 @@ class LRP:
         # look at feature names and colorize the bars in the axes object
         for idx, feat in enumerate(self.feature_names):
             if feat.startswith("MF:"):
-                col = "#1b9e77"
+                col = "#800000"
             elif feat.startswith("METH:"):
-                col = "#d95f02"
+                col = "#00008b"
             elif feat.startswith("GE:"):
-                col = "#7570b3"
+                col = "#006400"
             axes.patches[idx].set_facecolor(col)
             axes.get_xticklabels()[idx].set_color(col)
 
