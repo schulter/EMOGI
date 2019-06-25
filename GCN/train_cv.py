@@ -116,8 +116,9 @@ def run_all_cvs(adj, features, y_train, y_val, y_test, train_mask, val_mask, tes
     # preprocess features
     num_feat = features.shape[1]
     if num_feat > 1:
+        #print ("Row-normalization!")
         #features = utils.preprocess_features(lil_matrix(np.abs(features)))
-        print ("Not row-normalizing because we have negative input...")
+        print ("Not row-normalizing...")
         features = utils.sparse_to_tuple(lil_matrix(features))
     else:
         print("Not row-normalizing features because feature dim is {}".format(num_feat))
