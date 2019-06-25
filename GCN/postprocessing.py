@@ -16,7 +16,7 @@ import pagerank
 from sklearn.metrics import roc_curve, roc_auc_score
 from sklearn.metrics import precision_recall_curve, average_precision_score, auc
 from sklearn.linear_model import LogisticRegression
-from sklearn import svm
+from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier
 
 from functools import reduce
@@ -226,7 +226,7 @@ def compute_average_PR_curve(model_dir, pred_all, sets_all):
 
 
 
-def compute_ROC_PR_competitors(model_dir, verbose=False):
+def compute_ROC_PR_competitors(model_dir, network_name, verbose=False):
     """Computes ROC and PR curves and compares to base line methods.
 
     This function uses the mean prediction scores and the test set which was
@@ -284,6 +284,30 @@ def compute_ROC_PR_competitors(model_dir, verbose=False):
     pred_lr_all = logreg.predict_proba(features)
     if verbose: print ("LogReg predicts {} genes in total".format(np.argmax(pred_lr_all, axis=1).sum()))
 
+    # train logistic regression on deepWalk embeddings
+    fname_dw = '../data/pancancer/deepWalk_results/{}_embedding_CPDBparams.embedding'.format(network_name.upper())
+    deepwalk_embeddings = pd.read_csv(fname_dw, header=None, skiprows=1, sep=' ')
+    deepwalk_embeddings.columns = ['Node_Id'] + deepwalk_embeddings.columns[1:].tolist()
+    deepwalk_embeddings.set_index('Node_Id', inplace=True)
+    n_df = pd.DataFrame(node_names, columns=['ID', 'Name'])
+    embedding_with_names = deepwalk_embeddings.join(n_df)
+    X_dw = embedding_with_names.set_index('Name').reindex(n_df.Name).drop('ID', axis=1)
+    X_train_dw = X_dw[train_mask.astype(np.bool)]
+    X_test_dw = X_dw[test_mask.astype(np.bool)]
+    clf_dw = SVC(kernel='rbf', class_weight='balanced', probability=True)
+    clf_dw.fit(X_train_dw, y_train_svm.reshape(-1))
+    pred_deepwalk = clf_dw.predict_proba(X_test_dw)
+
+    # load results from graph attention networks (GAT)
+    if network_name.upper() == 'CPDB':
+        gat_results = np.load('../data/pancancer/gat_results/results_GAT_attention8_CPDB.npy')
+    elif network_name.upper() == 'IREF':
+        gat_results = np.load('../data/pancancer/gat_results/results_GAT_IREF.npy')
+    elif network_name.upper() == 'MULTINET':
+        gat_results = np.load('../data/pancancer/gat_results/results_GAT_MULTINET.npy')
+    gat_results = gat_results.reshape(gat_results.shape[1], gat_results.shape[2])
+    gat_results_test = gat_results[test_mask == 1, :]
+    
     # train pagerank on the network
     scores, names = pagerank.pagerank(network, node_names)
     pr_df = pd.DataFrame(scores, columns=['Number', 'Score']) # get the results in same order as our data
@@ -308,7 +332,7 @@ def compute_ROC_PR_competitors(model_dir, verbose=False):
     # add normalized heat
     heat_df['heat_norm'] = heat_df.heat / heat_df.heat.sum()
     p_0 = heat_df.heat_norm
-    p_0 = features.mean(axis=1)
+    #p_0 = features.mean(axis=1)
     beta = 0.3
     W = network / network.sum(axis=0) # normalize A
     assert (np.allclose(W.sum(axis=0), 1)) # assert that rows/cols sum to 1
@@ -340,6 +364,12 @@ def compute_ROC_PR_competitors(model_dir, verbose=False):
     # compute ROC for Logistic Regression
     fpr_lr, tpr_lr, thresholds_lr = roc_curve(y_true=y_true, y_score=pred_lr[:, 1])
     roc_auc_lr = roc_auc_score(y_true=y_true, y_score=pred_lr[:, 1])
+    # compute ROC for logistic regression on deepWalk embeddings
+    fpr_dw, tpr_dw, thresholds_dw = roc_curve(y_true=y_true, y_score=pred_deepwalk[:, 1])
+    roc_auc_dw = roc_auc_score(y_true=y_true, y_score=pred_deepwalk[:, 1])
+    # compute ROC for GAT
+    fpr_gat, tpr_gat, thresholds_gat = roc_curve(y_true=y_true, y_score=gat_results_test[:, 1])
+    roc_auc_gat = roc_auc_score(y_true=y_true, y_score=gat_results_test[:, 1])
     # compute ROC for PageRank
     fpr_pr, tpr_pr, thresholds_pr = roc_curve(y_true=y_true, y_score=pr_pred_test.Score)
     roc_auc_pr = roc_auc_score(y_true=y_true, y_score=pr_pred_test.Score)
@@ -354,10 +384,12 @@ def compute_ROC_PR_competitors(model_dir, verbose=False):
     fig = plt.figure(figsize=(14, 8))
     plt.plot(fpr, tpr, lw=linewidth, label='GCN (AUC = {0:.2f})'.format(roc_auc))
     plt.plot(fpr_rf, tpr_rf, lw=linewidth, label='Rand. Forest (AUC = {0:.2f})'.format(roc_auc_rf))
-    plt.plot(fpr_lr, tpr_lr, lw=linewidth, label='LogReg (AUC = {0:.2f})'.format(roc_auc_lr))
+    #plt.plot(fpr_lr, tpr_lr, lw=linewidth, label='LogReg (AUC = {0:.2f})'.format(roc_auc_lr))
+    plt.plot(fpr_dw, tpr_dw, lw=linewidth, label='DeepWalk (AUC = {0:.2f})'.format(roc_auc_dw))
+    plt.plot(fpr_gat, tpr_gat, lw=linewidth, label='GAT (AUC = {0:.2f})'.format(roc_auc_gat))
     plt.plot(fpr_pr, tpr_pr, lw=linewidth, label='PageRank (AUC = {0:.2f})'.format(roc_auc_pr))
     plt.plot(fpr_hotnet, tpr_hotnet, lw=linewidth, label='RWR (AUC = {0:.2f})'.format(roc_auc_hotnet))
-    plt.plot(fpr_ms, tpr_ms, lw=linewidth, label='MutSigCV (AUC = {0:.2f})'.format(roc_auc_ms))
+    plt.plot(fpr_ms[:-1], tpr_ms[:-1], lw=linewidth, label='MutSigCV'.format(roc_auc_ms))
     plt.plot([0, 1], [0, 1], color='gray', lw=linewidth, linestyle='--', label='Random')
     plt.xlabel('False Positive Rate', fontsize=labelfontsize)
     plt.ylabel('True Positive Rate', fontsize=labelfontsize)
@@ -381,6 +413,12 @@ def compute_ROC_PR_competitors(model_dir, verbose=False):
     # calculate precision and recall for Logistic Regression
     pr_lr, rec_lr, thresholds_lr = precision_recall_curve(y_true=y_true, probas_pred=pred_lr[:, 1])
     aupr_lr = average_precision_score(y_true=y_true, y_score=pred_lr[:, 1])
+    # calculate precision and recall for logistic regression on deepWalk embeddings
+    pr_dw, rec_dw, thresholds_dw = precision_recall_curve(y_true=y_true, probas_pred=pred_deepwalk[:, 1])
+    aupr_dw = average_precision_score(y_true=y_true, y_score=pred_deepwalk[:, 1])
+    # calculate precision and recall for GAT
+    pr_gat, rec_gat, thresholds_gat = precision_recall_curve(y_true=y_true, probas_pred=gat_results_test[:, 1])
+    aupr_gat = average_precision_score(y_true=y_true, y_score=gat_results_test[:, 1])
     # calculate precision and recall for PageRank
     pr_pr, rec_pr, thresholds_pr = precision_recall_curve(y_true=y_true, probas_pred=pr_pred_test.Score)
     aupr_pr = average_precision_score(y_true=y_true, y_score=pr_pred_test.Score)
@@ -395,10 +433,12 @@ def compute_ROC_PR_competitors(model_dir, verbose=False):
     plt.plot(rec, pr, lw=linewidth, label='GCN (AUPR = {0:.2f})'.format(aupr))
     #plt.plot(rec_svm, pr_svm, lw=linewidth, label='SVM (AUPR = {0:.2f})'.format(aupr_svm))
     plt.plot(rec_rf, pr_rf, lw=linewidth, label='Rand. Forest (AUPR = {0:.2f})'.format(aupr_rf))
-    plt.plot(rec_lr, pr_lr, lw=linewidth, label='LogReg (AUPR = {0:.2f})'.format(aupr_lr))
+    #plt.plot(rec_lr, pr_lr, lw=linewidth, label='LogReg (AUPR = {0:.2f})'.format(aupr_lr))
+    plt.plot(rec_dw, pr_dw, lw=linewidth, label='DeepWalk (AUPR = {0:.2f})'.format(aupr_dw))
+    plt.plot(rec_gat, pr_gat, lw=linewidth, label='GAT (AUPR = {0:.2f})'.format(aupr_gat))
     plt.plot(rec_pr, pr_pr, lw=linewidth, label='PageRank (AUPR = {0:.2f})'.format(aupr_pr))
-    plt.plot(rec_hotnet, pr_hotnet, lw=linewidth, label='RWR (AUPR = {0:.2f})'.format(aupr_hotnet))
-    plt.plot(rec_ms, pr_ms, lw=linewidth, label='MutSigCV (AUPR = {0:.2f})'.format(aupr_ms))
+    plt.plot(rec_hotnet, pr_hotnet, lw=linewidth, label='HotNet2 (AUPR = {0:.2f})'.format(aupr_hotnet))
+    plt.plot(rec_ms[1:], pr_ms[1:], lw=linewidth, label='MutSigCV')
     random_y = y_true.sum() / (y_true.sum() + y_true.shape[0] - y_true.sum())
     plt.plot([0, 1], [random_y, random_y], color='gray', lw=3, linestyle='--', label='Random')
     plt.xlabel('Recall', fontsize=20)
@@ -569,18 +609,23 @@ def parse_args():
                         required=True,
                         type=str
                         )
+    parser.add_argument('-n', '--network', help='PPI network',
+                        dest='network_name',
+                        required=True,
+                        type=str
+                        )
     args = parser.parse_args()
     return args
 
 
-def postprocessing(model_dir):
+def postprocessing(model_dir, network_name):
     """Run all plotting functions.
     """
     all_preds, all_sets = compute_ensemble_predictions(model_dir)
     compute_node_degree_relation(model_dir, 0.5)
     compute_average_ROC_curve(model_dir, all_preds, all_sets)
     compute_average_PR_curve(model_dir, all_preds, all_sets)
-    best_thr_roc, best_thr_pr = compute_ROC_PR_competitors(model_dir)
+    best_thr_roc, best_thr_pr = compute_ROC_PR_competitors(model_dir, network_name)
 
     # get the data from hdf5 container
     args, data_file = gcnIO.load_hyper_params(model_dir)
@@ -647,6 +692,6 @@ if __name__ == "__main__":
             model_dir = os.path.join(args.train_dir, model)
             if os.path.isdir(model_dir):
                 print ("Running post-processing for {}".format(model_dir))
-                postprocessing(model_dir)
+                postprocessing(model_dir, args.network_name)
     else:
-        postprocessing(args.train_dir)
+        postprocessing(args.train_dir, args.network_name)
