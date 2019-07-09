@@ -94,9 +94,7 @@ def write_hyper_params(args, input_file, file_name):
 
     Parameters:
     ----------
-    args:               The parameters to save. Should be in a
-                        arguments object from the `argparse`
-                        package
+    args:               The parameters to save as dictionary
     input_file:         The input data hdf5 container. Only
                         present for legacy reasons
     file_name:          The file name to write the data to.
@@ -104,8 +102,8 @@ def write_hyper_params(args, input_file, file_name):
                         for the load function to work properly.
     """
     with open(file_name, 'w') as f:
-        for arg in vars(args):
-            f.write('{}\t{}\n'.format(arg, getattr(args, arg)))
+        for arg in args:
+            f.write('{}\t{}\n'.format(arg, args[arg]))
         f.write('{}\n'.format(input_file))
     print("Hyper-Parameters saved to {}".format(file_name))
 
@@ -148,7 +146,7 @@ def load_hyper_params(model_dir):
                     args[key.strip()] = str_to_num(value.strip())
             else:
                 input_file = line.strip()
-    print ("Hyper-Parameters read from {}".format(file_name))
+    #print ("Hyper-Parameters read from {}".format(file_name))
     return args, input_file
 
 

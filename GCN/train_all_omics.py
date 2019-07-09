@@ -109,6 +109,7 @@ def get_performance_dict(performance_measures):
 
 if __name__ == "__main__":
     args = parse_args()
+    args_dict = vars(args)
     hidden_dims = [int(x) for x in args.hidden_dims]
 
     if not os.path.isdir(args.data):
@@ -120,7 +121,8 @@ if __name__ == "__main__":
     # run all omics datasets that we could find.
     all_omics_p = []
     data_types = []
-    for data_file in os.listdir(args.data):
+    base_dir = args.data
+    for data_file in os.listdir(base_dir):
         if data_file.endswith('.h5'):
             print ("Detected {}. Running GCN with that file!".format(data_file))
             omics_type = '_'.join(data_file.split('.')[0].split('_')[1:])
@@ -128,11 +130,12 @@ if __name__ == "__main__":
             training_dir = os.path.join(output_dir, omics_type)
 
             # load data and preprocess it
-            input_data_path = os.path.join(args.data, data_file)
+            input_data_path = os.path.join(base_dir, data_file)
             data = gcnIO.load_hdf_data(input_data_path, feature_name='features')
             adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feature_names = data
             print("Read data from: {}".format(input_data_path))
 
-            performance_measures = run_all_cvs(adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feature_names, args, training_dir)
+            args_dict['data'] = input_data_path
+            performance_measures = run_all_cvs(adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feature_names, args_dict, training_dir)
             all_omics_p.append(get_performance_dict(performance_measures))
     basic_plots(all_omics_p, data_types, os.path.join(output_dir, 'performance_statistics.svg'))

@@ -5,7 +5,7 @@ Created on Tue Jan 30 16:29:41 2018
 @author: roman
 """
 
-import argparse, os
+import argparse, os, sys
 import tensorflow as tf
 import utils, gcnIO, gcnPreprocessing
 from scipy.sparse import lil_matrix
@@ -70,7 +70,7 @@ def parse_args():
 
 
 def single_cv_run(session, support, num_supports, features, y_train, y_test, train_mask, test_mask, node_names, feature_names, args, model_dir):
-    hidden_dims = [int(x) for x in args.hidden_dims]
+    hidden_dims = [int(x) for x in args['hidden_dims']]
     placeholders = {
         'support': [tf.sparse_placeholder(tf.float32) for _ in range(num_supports)],
         'features': tf.sparse_placeholder(tf.float32, shape=features[2]),
@@ -82,16 +82,16 @@ def single_cv_run(session, support, num_supports, features, y_train, y_test, tra
     # construct model (including computation graph)
     model = MYGCN(placeholders=placeholders,
                 input_dim=features[2][1],
-                learning_rate=args.lr,
-                weight_decay=args.decay,
+                learning_rate=args['lr'],
+                weight_decay=args['decay'],
                 num_hidden_layers=len(hidden_dims),
                 hidden_dims=hidden_dims,
-                pos_loss_multiplier=args.loss_mul,
+                pos_loss_multiplier=args['loss_mul'],
                 logging=True
     )
     # fit the model
     model = fit_model(model, session, features, placeholders,
-                      support, args.epochs, args.dropout,
+                      support, args['epochs'], args['dropout'],
                       y_train, train_mask, y_test, test_mask,
                       model_dir)
     # Compute performance on test set
@@ -125,18 +125,18 @@ def run_all_cvs(adj, features, y_train, y_val, y_test, train_mask, val_mask, tes
         features = utils.sparse_to_tuple(lil_matrix(features))
 
     # get higher support matrices
-    support, num_supports = utils.get_support_matrices(adj, args.support)
+    support, num_supports = utils.get_support_matrices(adj, args['support'])
 
     # construct splits for k-fold CV
     y_all = np.logical_or(y_train, y_val)
     mask_all = np.logical_or(train_mask, val_mask)
     k_sets = gcnPreprocessing.cross_validation_sets(y=y_all,
                                                     mask=mask_all,
-                                                    folds=args.cv_runs
+                                                    folds=args['cv_runs']
     )
 
     performance_measures = []
-    for cv_run in range(args.cv_runs):
+    for cv_run in range(args['cv_runs']):
         model_dir = os.path.join(output_dir, 'cv_{}'.format(cv_run))
         y_tr, y_te, tr_mask, te_mask = k_sets[cv_run]
         with tf.Session() as sess:
@@ -144,7 +144,7 @@ def run_all_cvs(adj, features, y_train, y_val, y_test, train_mask, val_mask, tes
             performance_measures.append(val_performance)
         tf.reset_default_graph()
     # save hyper Parameters
-    gcnIO.write_hyper_params(args, args.data, os.path.join(output_dir, 'hyper_params.txt'))
+    gcnIO.write_hyper_params(args, args['data'], os.path.join(output_dir, 'hyper_params.txt'))
     return performance_measures
 
 
@@ -163,4 +163,6 @@ if __name__ == "__main__":
     adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feature_names = data
     print("Read data from: {}".format(input_data_path))
     
-    run_all_cvs(adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feature_names, args, output_dir)
+    args_dict = vars(args)
+    print (args_dict)
+    run_all_cvs(adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feature_names, args_dict, output_dir)
