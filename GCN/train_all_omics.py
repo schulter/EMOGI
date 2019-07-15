@@ -6,7 +6,7 @@ Created on Tue Jan 30 16:29:41 2018
 """
 
 # data wrangling
-import argparse, os
+import argparse, os, sys
 import utils, gcnIO, gcnPreprocessing
 
 # computation
@@ -113,7 +113,7 @@ if __name__ == "__main__":
     hidden_dims = [int(x) for x in args.hidden_dims]
 
     if not os.path.isdir(args.data):
-        print("Data is not a directory. This script uses all HDF5 containers in the directory for training.")
+        print("Data is not a directory. This script uses all HDF5 containers in the directory for training. Consider using `train_cv.py` for training only one HDF5 container.")
         sys.exit(-1)
 
     output_dir = gcnIO.create_model_dir()

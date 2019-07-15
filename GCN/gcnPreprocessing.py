@@ -90,7 +90,7 @@ def cross_validation_sets(y, mask, folds):
     of length four, containing the training labels, testing labels, training
     mask and testing mask, respectively.
     """
-    label_idx = np.where(mask == 1)[0] # get indices of labelled genes
+    label_idx = np.where(mask == 1)[0] # get indices of labeled genes
     kf = sklearn.model_selection.StratifiedKFold(n_splits=folds, shuffle=True)
     splits = kf.split(label_idx, y[label_idx])
     k_sets = []

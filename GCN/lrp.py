@@ -84,7 +84,10 @@ class LRP:
             self.node_names = [x[1] for x in f['gene_names'][:]]
             self.train_mask = f['mask_train'][:]
             self.feature_names = f['feature_names'][:]
-            self.features_raw = f['features_raw'][:]
+            if 'features_raw' in f:
+                self.features_raw = f['features_raw'][:]
+            else:
+                self.features_raw = f['features'][:]
             self.y_train = f['y_train'][:]
             # collect gene symbols of positive genes
             positives = [self.y_train.flatten(),
@@ -191,6 +194,8 @@ class LRP:
                 col = "#00008b"
             elif feat.startswith("GE:"):
                 col = "#006400"
+            else:
+                col = "#FF851B"
             axes.patches[idx].set_facecolor(col)
             axes.get_xticklabels()[idx].set_color(col)
 
