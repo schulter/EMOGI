@@ -1,47 +1,11 @@
 import h5py
 import os
-import gcn
 import numpy as np
 import networkx as nx
 import pickle as pkl
 import scipy.sparse as sp
 from datetime import datetime
 
-def load_cora():
-    """Load the Cora data set from the orignal GCN paper."""
-    names = ['x', 'y', 'tx', 'ty', 'allx', 'ally', 'graph']
-    objects = []
-    for i in range(len(names)):
-        with open("../../gcn/gcn/data/ind.cora.{}".format(names[i]), 'rb') as f:
-            objects.append(pkl.load(f, encoding='latin1'))
-    x, y, tx, ty, allx, ally, graph = tuple(objects)
-    test_idx_reorder = gcn.utils.parse_index_file(
-        "../../gcn/gcn/data/ind.cora.test.index")
-    test_idx_range = np.sort(test_idx_reorder)
-
-    features = sp.vstack((allx, tx)).tolil()
-    features[test_idx_reorder, :] = features[test_idx_range, :]
-    adj = nx.adjacency_matrix(nx.from_dict_of_lists(graph))
-
-    labels = np.vstack((ally, ty))
-    labels[test_idx_reorder, :] = labels[test_idx_range, :]
-
-    idx_test = test_idx_range.tolist()
-    idx_train = range(len(y))
-    idx_val = range(len(y), len(y)+500)
-
-    train_mask = gcn.utils.sample_mask(idx_train, labels.shape[0])
-    val_mask = gcn.utils.sample_mask(idx_val, labels.shape[0])
-    test_mask = gcn.utils.sample_mask(idx_test, labels.shape[0])
-
-    y_train = np.zeros(labels.shape)
-    y_val = np.zeros(labels.shape)
-    y_test = np.zeros(labels.shape)
-    y_train[train_mask, :] = labels[train_mask, :]
-    y_val[val_mask, :] = labels[val_mask, :]
-    y_test[test_mask, :] = labels[test_mask, :]
-
-    return adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask
 
 def load_hdf_data(path, network_name='network', feature_name='features'):
     """Load a GCN input HDF5 container and return its content.
