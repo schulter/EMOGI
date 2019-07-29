@@ -84,10 +84,10 @@ def pagerank(network, gene_names, diff_expr=None, alpha=0.3):
         pagerank_vals = nx.pagerank(G)
 
     # some output statistics
-    maxi = max(pagerank_vals, key=pagerank_vals.get)
-    print ("Maximum Pagerank: Index: {}\tPagerank: {}".format(maxi, pagerank_vals[maxi]))
-    mini = min(pagerank_vals, key=pagerank_vals.get)
-    print ("Minimum Pagerank: Index: {}\tPagerank: {}".format(mini, pagerank_vals[mini]))
+    #maxi = max(pagerank_vals, key=pagerank_vals.get)
+    #print ("Maximum Pagerank: Index: {}\tPagerank: {}".format(maxi, pagerank_vals[maxi]))
+    #mini = min(pagerank_vals, key=pagerank_vals.get)
+    #print ("Minimum Pagerank: Index: {}\tPagerank: {}".format(mini, pagerank_vals[mini]))
 
     # sort pagerank results (dict with gene idx and pagerank val)
     pagerank_sorted = sorted(pagerank_vals.items(), key=operator.itemgetter(1))[::-1]
