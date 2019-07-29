@@ -119,12 +119,12 @@ class LRP:
     def _run_deepexplain_single_cv(self, cv_dir, gene_name):
         ckpt = tf.train.get_checkpoint_state(checkpoint_dir=cv_dir)
         placeholders = {
-            'support': [tf.placeholder(tf.float32) for _ in range(len(self.support))],
+            'support': [tf.placeholder(tf.float32, shape=self.support[i].shape) for i in range(len(self.support))],
             'features': tf.placeholder(tf.float32, shape=self.features.shape),
             'labels': tf.placeholder(tf.float32, shape=(None, self.y_train.shape[1])),
-            'labels_mask': tf.placeholder(tf.int32),
+            'labels_mask': tf.placeholder(tf.int32, shape=self.train_mask.shape),
             'dropout': tf.placeholder_with_default(0., shape=()),
-            'num_features_nonzero': tf.placeholder(tf.int32)
+            'num_features_nonzero': tf.placeholder(tf.int32, shape=())
         }
         with tf.Session() as sess:
             with DeepExplain(session=sess) as de:
@@ -195,7 +195,7 @@ class LRP:
             elif feat.startswith("GE:"):
                 col = "#006400"
             else:
-                col = "#FF851B"
+                col = "#001f3f"
             axes.patches[idx].set_facecolor(col)
             axes.get_xticklabels()[idx].set_color(col)
 
@@ -282,7 +282,7 @@ class LRP:
 
     def _compute_lrp_single_gene(self, gene_name, only_attr=False):
         if not gene_name in self.node_names:
-            print("'{}' not found in gene list. Skipping.")
+            print("'{}' not found in gene list. Skipping.".format(gene_name))
             return
         print("Now:", gene_name)
         # compute LRP attributions for every CV fold
