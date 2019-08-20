@@ -1,4 +1,4 @@
-import argparse, os
+import argparse, os, sys
 import tensorflow as tf
 import utils, gcnIO
 from my_gcn import MYGCN
@@ -306,4 +306,3 @@ if __name__ == "__main__":
     # save hyper Parameters and plot
     gcnIO.write_hyper_params(args, args.data,
                              os.path.join(output_dir, 'hyper_params.txt'))
-    # interpret_results(save_path)

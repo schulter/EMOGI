@@ -14,8 +14,6 @@ import tensorflow as tf
 from scipy.sparse import lil_matrix
 import scipy.sparse as sp
 import numpy as np
-from train_gcn import *
-from my_gcn import MYGCN
 from train_cv import run_all_cvs
 
 # plotting
@@ -67,6 +65,7 @@ def parse_args():
                         )
     parser.add_argument('-d', '--data', help='Path to folder containing the data containers',
                         dest='data',
+                        required=True,
                         type=str
                         )
     parser.add_argument('-cv', '--cv_runs', help='Number of cross validation runs',
@@ -136,6 +135,8 @@ if __name__ == "__main__":
             print("Read data from: {}".format(input_data_path))
 
             args_dict['data'] = input_data_path
-            performance_measures = run_all_cvs(adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feature_names, args_dict, training_dir)
+            performance_measures = run_all_cvs(adj, features, y_train, y_val, y_test, train_mask,
+                                               val_mask, test_mask, node_names, feature_names,
+                                               args_dict, training_dir)
             all_omics_p.append(get_performance_dict(performance_measures))
     basic_plots(all_omics_p, data_types, os.path.join(output_dir, 'performance_statistics.svg'))

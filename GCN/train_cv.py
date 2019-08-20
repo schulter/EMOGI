@@ -69,7 +69,8 @@ def parse_args():
 
 
 
-def single_cv_run(session, support, num_supports, features, y_train, y_test, train_mask, test_mask, node_names, feature_names, args, model_dir):
+def single_cv_run(session, support, num_supports, features, y_train, y_test, train_mask, test_mask,
+                  node_names, feature_names, args, model_dir):
     hidden_dims = [int(x) for x in args['hidden_dims']]
     placeholders = {
         'support': [tf.sparse_placeholder(tf.float32) for _ in range(num_supports)],
@@ -112,14 +113,15 @@ def single_cv_run(session, support, num_supports, features, y_train, y_test, tra
     gcnIO.write_train_test_sets(model_dir, y_train, y_test, train_mask, test_mask)
     return test_performance
 
-def run_all_cvs(adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feature_names, args, output_dir):
+def run_all_cvs(adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names,
+                feature_names, args, output_dir):
     # preprocess features
     num_feat = features.shape[1]
     if num_feat > 1:
-        #print ("Row-normalization!")
-        #features = utils.preprocess_features(lil_matrix(np.abs(features)))
-        print ("Not row-normalizing...")
-        features = utils.sparse_to_tuple(lil_matrix(features))
+        print ("Row-normalization!")
+        features = utils.preprocess_features(lil_matrix(features))
+        #print ("Not row-normalizing...")
+        #features = utils.sparse_to_tuple(lil_matrix(features))
     else:
         print("Not row-normalizing features because feature dim is {}".format(num_feat))
         features = utils.sparse_to_tuple(lil_matrix(features))
@@ -140,7 +142,9 @@ def run_all_cvs(adj, features, y_train, y_val, y_test, train_mask, val_mask, tes
         model_dir = os.path.join(output_dir, 'cv_{}'.format(cv_run))
         y_tr, y_te, tr_mask, te_mask = k_sets[cv_run]
         with tf.Session() as sess:
-            val_performance = single_cv_run(sess, support, num_supports, features, y_tr, y_te, tr_mask, te_mask, node_names, feature_names, args, model_dir)
+            val_performance = single_cv_run(sess, support, num_supports, features, y_tr,
+                                            y_te, tr_mask, te_mask, node_names, feature_names,
+                                            args, model_dir)
             performance_measures.append(val_performance)
         tf.reset_default_graph()
     # save hyper Parameters
@@ -165,4 +169,5 @@ if __name__ == "__main__":
     
     args_dict = vars(args)
     print (args_dict)
-    run_all_cvs(adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feature_names, args_dict, output_dir)
+    run_all_cvs(adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask,
+                node_names, feature_names, args_dict, output_dir)
