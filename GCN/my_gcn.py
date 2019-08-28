@@ -87,12 +87,11 @@ class MyGraphConvolution(GraphConvolution):
 
     def _call(self, inputs):
         x = inputs
-
+        print (x.get_shape().as_list())
+        if len(x.get_shape().as_list()) == 3:
+            print ("This is a 3D convolution...")
         # dropout
-        if self.sparse_inputs:
-            x = sparse_dropout(x, 1-self.dropout, self.num_features_nonzero)
-        else:
-            x = tf.nn.dropout(x, 1-self.dropout)
+        x = tf.nn.dropout(x, 1-self.dropout)
 
         # convolve
         supports = list()
@@ -140,6 +139,7 @@ class MYGCN (Model):
         self.placeholders = placeholders
         self.optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
         self.sparse_network = sparse_network
+        self.threedconv = len(placeholders['features'].get_shape().as_list()) == 3
 
         # model params
         self.weight_decay = weight_decay

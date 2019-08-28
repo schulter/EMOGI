@@ -186,22 +186,24 @@ def train_gcn(data_path, n_support, hidden_dims, learning_rate,
     # preprocess features
     num_feat = features.shape[1]
     if num_feat > 1:
-        features = utils.preprocess_features(lil_matrix(features))
+        #features = utils.preprocess_features(lil_matrix(features))
+        #features = utils.sparse_to_tuple(lil_matrix(features))
+        pass
     else:
         print("Not row-normalizing features because feature dim is {}".format(num_feat))
-        features = utils.sparse_to_tuple(lil_matrix(features))
+        #features = utils.sparse_to_tuple(lil_matrix(features))
 
     # get higher support matrices
     support, num_supports = utils.get_support_matrices(adj, n_support)
 
     # create placeholders
     placeholders = {
-        'support': [tf.sparse_placeholder(tf.float32) for _ in range(num_supports)],
-        'features': tf.sparse_placeholder(tf.float32, shape=features[2]),
+        'support': [tf.sparse_placeholder(tf.float32, shape=support[i][2]) for i in range(num_supports)],
+        'features': tf.placeholder(tf.float32, shape=features.shape),
         'labels': tf.placeholder(tf.float32, shape=(None, y_train.shape[1])),
-        'labels_mask': tf.placeholder(tf.int32),
+        'labels_mask': tf.placeholder(tf.int32, shape=train_mask.shape),
         'dropout': tf.placeholder_with_default(0., shape=()),
-        'num_features_nonzero': tf.placeholder(tf.int32)
+        'num_features_nonzero': tf.placeholder(tf.int32, shape=())
     }
     hidden_dims = [int(x) for x in hidden_dims]
 
@@ -209,7 +211,7 @@ def train_gcn(data_path, n_support, hidden_dims, learning_rate,
     with tf.Session() as sess:
         # initialize model and metrics
         model = MYGCN(placeholders=placeholders,
-                      input_dim=features[2][1],
+                      input_dim=features.shape[1],
                       learning_rate=learning_rate,
                       weight_decay=weight_decay,
                       num_hidden_layers=len(hidden_dims),
