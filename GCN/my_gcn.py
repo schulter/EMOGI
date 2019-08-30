@@ -10,6 +10,7 @@ from gcn.inits import glorot
 import io
 import matplotlib.pyplot as plt
 import math
+import numpy as np
 bestSplit = lambda x: (round(math.sqrt(x)), math.ceil(x / round(math.sqrt(x))))
 
 
@@ -22,6 +23,13 @@ def sparse_dropout(x, keep_prob, noise_shape):
     pre_out = tf.sparse_retain(x, dropout_mask)
     return pre_out * (1./keep_prob)
 
+def glorot_3d(shape, name=None):
+    """Glorot & Bengio (AISTATS 2010) init."""
+    init_range = np.sqrt(6.0/(np.sum(shape)))
+    print (shape)
+    initial = tf.random_uniform(shape, minval=-init_range, maxval=init_range, dtype=tf.float32)
+    print (initial.get_shape())
+    return tf.Variable(initial, name=name)
 
 
 class MyGraphConvolution(GraphConvolution):
@@ -42,12 +50,18 @@ class MyGraphConvolution(GraphConvolution):
         self.bias = bias
         self.sparse_network = sparse_network
 
+
         # helper variable for sparse dropout
         self.num_features_nonzero = placeholders['num_features_nonzero']
 
         with tf.variable_scope(self.name + '_vars'):
+            if type(input_dim) == list:
+                dims = [input_dim[0], output_dim, input_dim[1]]
+            else:
+                dims = [input_dim, output_dim]
             for i in range(len(self.support)):
-                self.vars['weights_' + str(i)] = glorot([input_dim, output_dim],
+                print (dims)
+                self.vars['weights_' + str(i)] = glorot_3d(dims,
                                                         name='weights_' + str(i))
             if self.bias:
                 self.vars['bias'] = zeros([output_dim], name='bias')
@@ -87,29 +101,45 @@ class MyGraphConvolution(GraphConvolution):
 
     def _call(self, inputs):
         x = inputs
-        print (x.get_shape().as_list())
-        if len(x.get_shape().as_list()) == 3:
-            print ("This is a 3D convolution...")
-        # dropout
-        x = tf.nn.dropout(x, 1-self.dropout)
 
-        # convolve
-        supports = list()
-        for i in range(len(self.support)):
-            if not self.featureless:
-                pre_sup = dot(x, self.vars['weights_' + str(i)],
-                              sparse=self.sparse_inputs)
-            else:
-                pre_sup = self.vars['weights_' + str(i)]
-            support = dot(self.support[i], pre_sup, sparse=self.sparse_network)
-            supports.append(support)
-        output = tf.add_n(supports)
+        # dropout
+        x = tf.nn.dropout(x, rate=self.dropout)
+
+        if len(x.get_shape().as_list()) == 3:
+            print ("3D convolution")
+            supports = list()
+            for i in range(len(self.support)):
+                W = self.vars['weights_' + str(i)]
+                pre_sup = tf.einsum("nij,ikj->nkj", x, W)
+                A = self.support[i]
+                print (A.get_shape())
+                A = tf.expand_dims(A, 2)
+                A = tf.stack([A, A, A], axis=2)
+                print (A.get_shape())
+                support = tf.einsum("nmj,mkj->nkj", A, pre_sup)
+                supports.append(support)
+            output = tf.add_n(supports)
+            output = tf.sum(output, axis=2)
+        else:
+            print ("2D convolution")
+            # convolve
+            supports = list()
+            for i in range(len(self.support)):
+                if not self.featureless:
+                    pre_sup = dot(x, self.vars['weights_' + str(i)],
+                                    sparse=self.sparse_inputs)
+                else:
+                    pre_sup = self.vars['weights_' + str(i)]
+                support = dot(self.support[i], pre_sup, sparse=self.sparse_network)
+                supports.append(support)
+            output = tf.add_n(supports)
 
         # bias
         if self.bias:
             output += self.vars['bias']
         
         return self.act(output)
+
 
     def __call__(self, inputs):
         with tf.name_scope(self.name):
@@ -133,7 +163,8 @@ class MYGCN (Model):
 
         # data placeholders
         self.inputs = placeholders['features']
-        self.input_dim = input_dim
+        self.input_dim = placeholders['features'].get_shape().as_list()[1:]
+        print ("Input dim: {}".format(self.input_dim))
         # self.input_dim = placeholders['features'].get_shape().as_list()[1]
         self.output_dim = placeholders['labels'].get_shape().as_list()[1]
         self.placeholders = placeholders
