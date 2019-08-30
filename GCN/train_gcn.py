@@ -83,6 +83,13 @@ def fit_model(model, sess, features, placeholders,
         feed_dict = utils.construct_feed_dict(features, support, y_train,
                                               train_mask, placeholders)
         feed_dict.update({placeholders['dropout']: dropout_rate})
+        for key in ['labels', 'features', 'labels_mask']:
+            v = placeholders[key]
+            print ("{}\t{}\t{}".format(key, v.get_shape(), feed_dict[v].shape))
+        print ("Support: {}".format(len(placeholders['support'])))
+        for i in range(len(placeholders['support'])):
+            print (tf.contrib.util.constant_value(placeholders['support'][i].shape), feed_dict[placeholders['support'][i]][2])
+        print (placeholders.keys)
         _ = sess.run(model.opt_op, feed_dict=feed_dict)
         train_loss, train_acc, train_aupr, train_auroc = sess.run(performance_ops,
                                                                     feed_dict=feed_dict)
@@ -293,7 +300,8 @@ if __name__ == "__main__":
         print("Data is not hdf5 container. Exit now.")
         sys.exit(-1)
 
-    output_dir = gcnIO.create_model_dir()
+    #output_dir = gcnIO.create_model_dir()
+    output_dir = '../data/GCN/training/2019_08_30_15_21_15'
     predictions = train_gcn(data_path=args.data,
                             n_support=args.support,
                             hidden_dims=args.hidden_dims,
