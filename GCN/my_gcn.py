@@ -26,9 +26,9 @@ def sparse_dropout(x, keep_prob, noise_shape):
 def glorot_3d(shape, name=None):
     """Glorot & Bengio (AISTATS 2010) init."""
     init_range = np.sqrt(6.0/(np.sum(shape)))
-    print (shape)
+    #print (shape)
     initial = tf.random_uniform(shape, minval=-init_range, maxval=init_range, dtype=tf.float32)
-    print (initial.get_shape())
+    #print (initial.get_shape())
     return tf.Variable(initial, name=name)
 
 
@@ -60,7 +60,6 @@ class MyGraphConvolution(GraphConvolution):
             else:
                 dims = [input_dim, output_dim]
             for i in range(len(self.support)):
-                print (dims)
                 self.vars['weights_' + str(i)] = glorot_3d(dims,
                                                         name='weights_' + str(i))
             if self.bias:
@@ -101,7 +100,7 @@ class MyGraphConvolution(GraphConvolution):
 
     def _call(self, inputs):
         x = inputs
-        print ("input shape: {}".format(x.get_shape()))
+        #print ("input shape: {}".format(x.get_shape()))
         # dropout
         x = tf.nn.dropout(x, rate=self.dropout)
 
@@ -111,17 +110,17 @@ class MyGraphConvolution(GraphConvolution):
             for i in range(len(self.support)):
                 W = self.vars['weights_' + str(i)]
                 pre_sup = tf.einsum("nij,ikj->nkj", x, W)
-                print ("Pre-sup 3D shape: {}".format(pre_sup.get_shape()))
+                #print ("Pre-sup 3D shape: {}".format(pre_sup.get_shape()))
                 gc_channels = []
                 for j in range(x.get_shape().as_list()[2]):
                     A = self.support[i]
                     sup = dot(A, pre_sup[:, :, j], sparse=self.sparse_network)
                     gc_channels.append(sup)
                 support = tf.add_n(gc_channels)
-                print ("Support 3D shape: {}".format(support.get_shape()))
+                #print ("Support 3D shape: {}".format(support.get_shape()))
                 supports.append(support)
             output = tf.add_n(supports)
-            print (output.get_shape())
+            #print (output.get_shape())
         else:
             print ("2D convolution")
             # convolve
@@ -166,7 +165,7 @@ class MYGCN (Model):
         # data placeholders
         self.inputs = placeholders['features']
         self.input_dim = placeholders['features'].get_shape().as_list()[1:]
-        print ("Input dim: {}".format(self.input_dim))
+        #print ("Input dim: {}".format(self.input_dim))
         # self.input_dim = placeholders['features'].get_shape().as_list()[1]
         self.output_dim = placeholders['labels'].get_shape().as_list()[1]
         self.placeholders = placeholders

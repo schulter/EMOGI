@@ -83,17 +83,6 @@ def fit_model(model, sess, features, placeholders,
         feed_dict = utils.construct_feed_dict(features, support, y_train,
                                               train_mask, placeholders)
         feed_dict.update({placeholders['dropout']: dropout_rate})
-        for key in ['labels', 'features', 'labels_mask']:
-            v = placeholders[key]
-            print ("{}\t{}\t{}\t{}".format(key, v.get_shape(), feed_dict[v].shape, v.dtype))
-
-        for d in feed_dict:
-            print (d)
-        print ("Support: {}".format(len(placeholders['support'])))
-        for i in range(len(placeholders['support'])):
-            print (tf.contrib.util.constant_value(placeholders['support'][i].shape),
-                   feed_dict[placeholders['support'][i]][2], placeholders['support'][i].dtype,
-                   feed_dict[placeholders['support'][i]])
         _ = sess.run(model.opt_op, feed_dict=feed_dict)
         train_loss, train_acc, train_aupr, train_auroc = sess.run(performance_ops,
                                                                     feed_dict=feed_dict)
