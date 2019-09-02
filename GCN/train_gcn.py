@@ -85,11 +85,15 @@ def fit_model(model, sess, features, placeholders,
         feed_dict.update({placeholders['dropout']: dropout_rate})
         for key in ['labels', 'features', 'labels_mask']:
             v = placeholders[key]
-            print ("{}\t{}\t{}".format(key, v.get_shape(), feed_dict[v].shape))
+            print ("{}\t{}\t{}\t{}".format(key, v.get_shape(), feed_dict[v].shape, v.dtype))
+
+        for d in feed_dict:
+            print (d)
         print ("Support: {}".format(len(placeholders['support'])))
         for i in range(len(placeholders['support'])):
-            print (tf.contrib.util.constant_value(placeholders['support'][i].shape), feed_dict[placeholders['support'][i]][2])
-        print (placeholders.keys)
+            print (tf.contrib.util.constant_value(placeholders['support'][i].shape),
+                   feed_dict[placeholders['support'][i]][2], placeholders['support'][i].dtype,
+                   feed_dict[placeholders['support'][i]])
         _ = sess.run(model.opt_op, feed_dict=feed_dict)
         train_loss, train_acc, train_aupr, train_auroc = sess.run(performance_ops,
                                                                     feed_dict=feed_dict)
@@ -205,12 +209,12 @@ def train_gcn(data_path, n_support, hidden_dims, learning_rate,
 
     # create placeholders
     placeholders = {
-        'support': [tf.sparse_placeholder(tf.float32, shape=support[i][2]) for i in range(num_supports)],
-        'features': tf.placeholder(tf.float32, shape=features.shape),
-        'labels': tf.placeholder(tf.float32, shape=(None, y_train.shape[1])),
-        'labels_mask': tf.placeholder(tf.int32, shape=train_mask.shape),
-        'dropout': tf.placeholder_with_default(0., shape=()),
-        'num_features_nonzero': tf.placeholder(tf.int32, shape=())
+        'support': [tf.sparse_placeholder(tf.float32, name='support_{}'.format(i)) for i in range(num_supports)],
+        'features': tf.placeholder(tf.float32, shape=features.shape, name='Features'),
+        'labels': tf.placeholder(tf.float32, shape=(None, y_train.shape[1]), name='Labels'),
+        'labels_mask': tf.placeholder(tf.int32, shape=train_mask.shape, name='LabelsMask'),
+        'dropout': tf.placeholder_with_default(0., shape=(), name='Dropout')
+        #'num_features_nonzero': tf.placeholder(tf.int32, shape=())
     }
     hidden_dims = [int(x) for x in hidden_dims]
 

@@ -52,7 +52,7 @@ class MyGraphConvolution(GraphConvolution):
 
 
         # helper variable for sparse dropout
-        self.num_features_nonzero = placeholders['num_features_nonzero']
+        #self.num_features_nonzero = placeholders['num_features_nonzero']
 
         with tf.variable_scope(self.name + '_vars'):
             if type(input_dim) == list:
@@ -90,13 +90,13 @@ class MyGraphConvolution(GraphConvolution):
         for var in self.vars:
             tf.summary.histogram(self.name + '/vars/' + var, self.vars[var])
             tensor = self.vars[var]
-            if var.startswith('weight'):
-                tf.summary.image("weight_importance", tf.expand_dims(tf.expand_dims(self.vars[var], 0), -1))
+            #if var.startswith('weight'):
+            #    tf.summary.image("weight_importance", tf.expand_dims(tf.expand_dims(self.vars[var], 0), -1))
             with tf.name_scope('stats_{}'.format(var)):
                 tf.summary.scalar('mean', tf.reduce_mean(tensor))
                 tf.summary.scalar('max', tf.reduce_max(tensor))
                 tf.summary.scalar('min', tf.reduce_min(tensor))
-                tf.summary.histogram('histogram', tensor)
+                #tf.summary.histogram('histogram', tensor)
 
 
     def _call(self, inputs):
