@@ -26,11 +26,8 @@ def sparse_dropout(x, keep_prob, noise_shape):
 def glorot_3d(shape, name=None):
     """Glorot & Bengio (AISTATS 2010) init."""
     init_range = np.sqrt(6.0/(np.sum(shape)))
-    #print (shape)
     initial = tf.random_uniform(shape, minval=-init_range, maxval=init_range, dtype=tf.float32)
-    #print (initial.get_shape())
     return tf.Variable(initial, name=name)
-
 
 class MyGraphConvolution(GraphConvolution):
     def __init__(self, input_dim, output_dim, placeholders, dropout=0.,
@@ -50,14 +47,10 @@ class MyGraphConvolution(GraphConvolution):
         self.bias = bias
         self.sparse_network = sparse_network
 
-
-        # helper variable for sparse dropout
-        #self.num_features_nonzero = placeholders['num_features_nonzero']
-
         with tf.variable_scope(self.name + '_vars'):
-            if type(input_dim) == list:
+            if type(input_dim) == list: # 3D convolution
                 dims = [input_dim[0], output_dim, input_dim[1]]
-            else:
+            else: # 2D convolution
                 dims = [input_dim, output_dim]
             for i in range(len(self.support)):
                 self.vars['weights_' + str(i)] = glorot_3d(dims,
@@ -128,7 +121,7 @@ class MyGraphConvolution(GraphConvolution):
             for i in range(len(self.support)):
                 if not self.featureless:
                     pre_sup = dot(x, self.vars['weights_' + str(i)],
-                                    sparse=self.sparse_inputs)
+                                    sparse=False)
                 else:
                     pre_sup = self.vars['weights_' + str(i)]
                 support = dot(self.support[i], pre_sup, sparse=self.sparse_network)
@@ -164,14 +157,15 @@ class MYGCN (Model):
 
         # data placeholders
         self.inputs = placeholders['features']
-        self.input_dim = placeholders['features'].get_shape().as_list()[1:]
+        if len(placeholders['features'].get_shape().as_list()) > 2: #3D
+            self.input_dim = placeholders['features'].get_shape().as_list()[1:]
+        else:
+            self.input_dim = placeholders['features'].get_shape().as_list()[1]
         #print ("Input dim: {}".format(self.input_dim))
-        # self.input_dim = placeholders['features'].get_shape().as_list()[1]
         self.output_dim = placeholders['labels'].get_shape().as_list()[1]
         self.placeholders = placeholders
         self.optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
         self.sparse_network = sparse_network
-        self.threedconv = len(placeholders['features'].get_shape().as_list()) == 3
 
         # model params
         self.weight_decay = weight_decay
