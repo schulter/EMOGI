@@ -73,22 +73,22 @@ def single_cv_run(session, support, num_supports, features, y_train, y_test, tra
                   node_names, feature_names, args, model_dir):
     hidden_dims = [int(x) for x in args['hidden_dims']]
     placeholders = {
-        'support': [tf.sparse_placeholder(tf.float32, shape=support[i].shape) for i in range(num_supports)],
-        'features': tf.sparse_placeholder(tf.float32, shape=features[2]),
-        'labels': tf.placeholder(tf.float32, shape=(None, y_train.shape[1])),
-        'labels_mask': tf.placeholder(tf.int32, shape=train_mask.shape),
-        'dropout': tf.placeholder_with_default(0., shape=()),
-        'num_features_nonzero': tf.placeholder(tf.int32, shape=())
+        'support': [tf.sparse_placeholder(tf.float32, name='support_{}'.format(i)) for i in range(num_supports)],
+        'features': tf.placeholder(tf.float32, shape=features.shape, name='Features'),
+        'labels': tf.placeholder(tf.float32, shape=(None, y_train.shape[1]), name='Labels'),
+        'labels_mask': tf.placeholder(tf.int32, shape=train_mask.shape, name='LabelsMask'),
+        'dropout': tf.placeholder_with_default(0., shape=(), name='Dropout')
+        #'num_features_nonzero': tf.placeholder(tf.int32, shape=())
     }
     # construct model (including computation graph)
     model = MYGCN(placeholders=placeholders,
-                input_dim=features[2][1],
-                learning_rate=args['lr'],
-                weight_decay=args['decay'],
-                num_hidden_layers=len(hidden_dims),
-                hidden_dims=hidden_dims,
-                pos_loss_multiplier=args['loss_mul'],
-                logging=True
+                    input_dim=features.shape[1],
+                    learning_rate=args['lr'],
+                    weight_decay=args['decay'],
+                    num_hidden_layers=len(hidden_dims),
+                    hidden_dims=hidden_dims,
+                    pos_loss_multiplier=args['loss_mul'],
+                    logging=True
     )
     # fit the model
     model = fit_model(model, session, features, placeholders,
@@ -118,8 +118,8 @@ def run_all_cvs(adj, features, y_train, y_val, y_test, train_mask, val_mask, tes
     # preprocess features
     num_feat = features.shape[1]
     if num_feat > 1:
-        print ("Row-normalization!")
-        features = utils.preprocess_features(lil_matrix(features))
+        print ("No row-normalization for 3D features!")
+        #features = utils.preprocess_features(lil_matrix(features))
         #print ("Not row-normalizing...")
         #features = utils.sparse_to_tuple(lil_matrix(features))
     else:
