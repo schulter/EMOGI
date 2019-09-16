@@ -1,5 +1,5 @@
 import argparse
-import os
+import os, sys
 import pickle
 
 import h5py
@@ -145,14 +145,14 @@ if __name__ == "__main__":
         print ("Not row-normalizing features because feature dim is {}".format(num_feat))
         features = utils.sparse_to_tuple(lil_matrix(features))
 
-    params = {'support':[1, 2],
-              'dropout':[0.5, 0.7, 0.3],
-              'hidden_dims': [[20, 40], [50, 40, 30, 20, 10],
-                              [50, 100]],
-              'loss_mul': [10, 30, 60, 100, 200],
-              'learningrate':[0.001, 0.01],
+    params = {'support':[1],
+              'dropout':[0.5],
+              'hidden_dims': [[20, 40],
+                              [100, 50, 10], [50, 100], [50, 40, 30, 20, 10]],
+              'loss_mul': [10, 45, 90, 150, 250],
+              'learningrate':[0.001],
               'epochs':[2000],
-              'weight_decay':[5e-2, 0.1]
+              'weight_decay':[5e-3]
               }
     """
     params = {'support':[1],
@@ -195,8 +195,8 @@ if __name__ == "__main__":
             performance_dict = {'accuracy':accs, 'loss':losses,
                                 'num_predicted':numpreds, 'aupr':auprs}
             performances.append((accs, losses, numpreds, auprs, param_set))
-            write_hyper_param_dict(param_set, os.path.join(param_dir, 'params.pkl'))
-            write_performances(performance_dict, os.path.join(param_dir, 'performance.pkl'))
+            write_hyper_param_dict(param_set, os.path.join(param_dir, 'params.txt'))
+            write_performances(performance_dict, os.path.join(param_dir, 'performance.txt'))
             tf.reset_default_graph()
         param_num += 1
         print ("[{} out of {} combinations]: {}".format(param_num, num_of_settings, param_set))
