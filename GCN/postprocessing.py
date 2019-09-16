@@ -273,6 +273,7 @@ def compute_ROC_PR_competitors(model_dir, network_name, network_measures=False, 
         data_file = os.path.join(data_file, fname)
     data = gcnIO.load_hdf_data(data_file)
     network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feat_names = data
+    features = features.reshape(features.shape[0], -1) # flatten 3D features
     # read predictions, too
     predictions = load_predictions(model_dir)
 
@@ -322,7 +323,7 @@ def compute_ROC_PR_competitors(model_dir, network_name, network_measures=False, 
             cancer_gene_neighbors[node] = _get_num_cancer_genes(node)
         nodes['Cancer_Neighbors'] = nodes.index.map(cancer_gene_neighbors)
         cn_baseline = nodes[test_mask.astype(np.bool)].Cancer_Neighbors
-
+        cn_baseline.loc[cn_baseline.isnull()] = 0
 
     # train logistic regression on the features only and predict for test set and all genes
     logreg = LogisticRegression(class_weight='balanced', solver='lbfgs')
@@ -358,13 +359,13 @@ def compute_ROC_PR_competitors(model_dir, network_name, network_measures=False, 
     elif network_name.upper() == 'IREFNEW':
         gat_results = np.load('../data/pancancer/gat_results/results_GAT_IREFNEW.npy')
     elif network_name.upper() == 'PCNET':
-        gat_results = np.load('../data/pancancer/gat_results/results_GAT_IREF.npy')
-        print ("GAT was not yet trained for PCNet. Taking the results for IREF Index instead...")
+        gat_results = np.load('../data/pancancer/gat_results/results_GAT_PCNET.npy')
     else:
-        gat_results = np.load('../data/pancancer/gat_results/results_GAT_IREF.npy')
-        print ("Network {} not recognized. Using IREF Index as GAT reference performance instead.".format(network_name))
-    gat_results = gat_results.reshape(gat_results.shape[1], gat_results.shape[2])
-    gat_results_test = gat_results[test_mask == 1, :]
+        gat_results = None
+        print ("Network {} not recognized for GAT performance.".format(network_name))
+    if not gat_results is None:
+        gat_results = gat_results.reshape(gat_results.shape[1], gat_results.shape[2])
+        gat_results_test = gat_results[test_mask == 1, :]
 
     # train pagerank on the network
     scores, names = pagerank.pagerank(network, node_names)
@@ -444,8 +445,9 @@ def compute_ROC_PR_competitors(model_dir, network_name, network_measures=False, 
     fpr_dw, tpr_dw, thresholds_dw = roc_curve(y_true=y_true, y_score=pred_deepwalk[:, 1])
     roc_auc_dw = roc_auc_score(y_true=y_true, y_score=pred_deepwalk[:, 1])
     # compute ROC for GAT
-    fpr_gat, tpr_gat, thresholds_gat = roc_curve(y_true=y_true, y_score=gat_results_test[:, 1])
-    roc_auc_gat = roc_auc_score(y_true=y_true, y_score=gat_results_test[:, 1])
+    if not gat_results is None:
+        fpr_gat, tpr_gat, thresholds_gat = roc_curve(y_true=y_true, y_score=gat_results_test[:, 1])
+        roc_auc_gat = roc_auc_score(y_true=y_true, y_score=gat_results_test[:, 1])
     # compute ROC for PageRank
     fpr_pr, tpr_pr, thresholds_pr = roc_curve(y_true=y_true, y_score=pr_pred_test.Score)
     roc_auc_pr = roc_auc_score(y_true=y_true, y_score=pr_pred_test.Score)
@@ -468,7 +470,8 @@ def compute_ROC_PR_competitors(model_dir, network_name, network_measures=False, 
         plt.plot(fpr_bn, tpr_bn, lw=linewidth, label='Betweenness (AUC = {0:.2f})'.format(roc_auc_bn))
         plt.plot(fpr_cn, tpr_cn, lw=linewidth, label='# Pos. Neighbors (AUC = {0:.2f})'.format(roc_auc_cn))
     plt.plot(fpr_dw, tpr_dw, lw=linewidth, label='DeepWalk (AUC = {0:.2f})'.format(roc_auc_dw))
-    plt.plot(fpr_gat, tpr_gat, lw=linewidth, label='GAT (AUC = {0:.2f})'.format(roc_auc_gat))
+    if not gat_results is None:
+        plt.plot(fpr_gat, tpr_gat, lw=linewidth, label='GAT (AUC = {0:.2f})'.format(roc_auc_gat))
     plt.plot(fpr_pr, tpr_pr, lw=linewidth, label='PageRank (AUC = {0:.2f})'.format(roc_auc_pr))
     plt.plot(fpr_hotnet, tpr_hotnet, lw=linewidth, label='RWR (AUC = {0:.2f})'.format(roc_auc_hotnet))
     plt.plot(fpr_ms[:-1], tpr_ms[:-1], lw=linewidth, label='MutSigCV'.format(roc_auc_ms))
@@ -514,12 +517,14 @@ def compute_ROC_PR_competitors(model_dir, network_name, network_measures=False, 
     # calculate precision and recall for Logistic Regression
     pr_lr, rec_lr, thresholds_lr = precision_recall_curve(y_true=y_true, probas_pred=pred_lr[:, 1])
     aupr_lr = average_precision_score(y_true=y_true, y_score=pred_lr[:, 1])
-    # calculate precision and recall for logistic regression on deepWalk embeddings
+    # calculate precision and recall for SVM on deepWalk embeddings
     pr_dw, rec_dw, thresholds_dw = precision_recall_curve(y_true=y_true, probas_pred=pred_deepwalk[:, 1])
     aupr_dw = average_precision_score(y_true=y_true, y_score=pred_deepwalk[:, 1])
     # calculate precision and recall for GAT
-    pr_gat, rec_gat, thresholds_gat = precision_recall_curve(y_true=y_true, probas_pred=gat_results_test[:, 1])
-    aupr_gat = average_precision_score(y_true=y_true, y_score=gat_results_test[:, 1])
+    if not gat_results is None:
+        pr_gat, rec_gat, thresholds_gat = precision_recall_curve(y_true=y_true,
+                                                                 probas_pred=gat_results_test[:, 1])
+        aupr_gat = average_precision_score(y_true=y_true, y_score=gat_results_test[:, 1])
     # calculate precision and recall for PageRank
     pr_pr, rec_pr, thresholds_pr = precision_recall_curve(y_true=y_true, probas_pred=pr_pred_test.Score)
     aupr_pr = average_precision_score(y_true=y_true, y_score=pr_pred_test.Score)
@@ -542,7 +547,8 @@ def compute_ROC_PR_competitors(model_dir, network_name, network_measures=False, 
         plt.plot(rec_bn, pr_bn, lw=linewidth, label='Betweenness (AUPR = {0:.2f})'.format(aupr_bn))
         plt.plot(rec_cn, pr_cn, lw=linewidth, label='# Pos. Neighbors (AUPR = {0:.2f})'.format(aupr_cn))
     plt.plot(rec_dw, pr_dw, lw=linewidth, label='DeepWalk (AUPR = {0:.2f})'.format(aupr_dw))
-    plt.plot(rec_gat, pr_gat, lw=linewidth, label='GAT (AUPR = {0:.2f})'.format(aupr_gat))
+    if not gat_results is None:
+        plt.plot(rec_gat, pr_gat, lw=linewidth, label='GAT (AUPR = {0:.2f})'.format(aupr_gat))
     plt.plot(rec_pr, pr_pr, lw=linewidth, label='PageRank (AUPR = {0:.2f})'.format(aupr_pr))
     plt.plot(rec_hotnet, pr_hotnet, lw=linewidth, label='HotNet2 (AUPR = {0:.2f})'.format(aupr_hotnet))
     plt.plot(rec_ms[1:], pr_ms[1:], lw=linewidth, label='MutSigCV')
