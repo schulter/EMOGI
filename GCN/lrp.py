@@ -146,8 +146,8 @@ class LRP:
                                   T=tf.nn.sigmoid(model.outputs) * mask_gene,
                                   X=[placeholders['features'], *placeholders["support"]],
                                   xs=[self.features, *self.support])
-                print ("Attribution shape: {}".format(attributions[0].shape))
-                print (len(attributions))
+                #print ("Attribution shape: {}".format(attributions[0].shape))
+                #print (len(attributions))
         tf.reset_default_graph()
         return attributions
 
@@ -347,7 +347,7 @@ class LRP:
         attributions = [np.array(x) for x in attributions]
         attributions_std = [np.std(x, axis=0) for x in attributions]
         attributions = [np.mean(x, axis=0) for x in attributions]
-        [print(i.shape) for i in attributions]
+        #[print(i.shape) for i in attributions]
         # return attributions if plots are not needed
         if only_attr == True:
             return attributions, attributions_std
@@ -474,10 +474,17 @@ def main():
                         nargs='+',
                         dest='genes',
                         default=None)
+
+    parser.add_argument('-a', '--all', help='Compute LRP for all genes', dest='all_genes', default=False, type=bool)
     args = parser.parse_args()
 
+    # decide whether to compute LRP for all genes
+    if args.all_genes:
+        interpreter = LRP(model_dir=args.model_dir)
+        interpreter.compute_lrp_all_genes()
+
     # get some genes to do interpretation for
-    if args.genes is None:
+    elif args.genes is None:
         genes = ["CEBPB", "CHD1", "CHD3", "CHD4", "TP53", "RBL2", "BRCA1",
                  "BRCA2", "NOTCH2", "NOTCH1", "ZNF24", "SIM1", "HSP90AA1",
                  "ARNT", "KRAS", "SMAD6", "SMAD4",  "STAT1", "MGMT", "NCOR2",
