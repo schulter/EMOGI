@@ -221,17 +221,17 @@ class LRP:
             fig.add_subplot(ax)
         plt.subplots_adjust(bottom=0.05, hspace=0.05, wspace=0)
 
-    def _barplot_2D(self, fig, outer_grid, x, y_name=None, title=None):
-        print (x.shape)
+    def _barplot_2D(self, fig, outer_grid, x, std=None, y_name=None, title=None):
+        print (x.shape, len(self.feature_names))
         ax = plt.Subplot(fig, outer_grid)
-        ax.bar(np.arange(len(self.feature_names)), x)
-        ax.set_xticks(x)
-        ax.set_xticklabels(self.feature_names)
+        ax.bar(np.arange(len(self.feature_names)), x, yerr=std, tick_label=self.feature_names)
         if not title is None:
             ax.set_title(title)
         if not y_name is None:
             ax.set_ylabel(y_name)
         self._colorize_by_omics(ax)
+        for tick in ax.get_xticklabels():
+            tick.set_rotation(90)
         fig.add_subplot(ax)
 
     def _save_attribution_plots(self, attributions_mean, attributions_std, nodes_attr, gene_name):
@@ -254,24 +254,27 @@ class LRP:
         fig.patch.set_visible(False)
         # original feature plot
         idx_gene = self.node_names.index(gene_name)
-        x = np.arange(len(self.feature_names))
+        #x = np.arange(len(self.feature_names))
         print (len(self.feature_names))
-        s = "{0} (label = {1}, mean prediction = {2}, LRP sum total = {3:8.2f}, LRP sum gene = {4:8.2f})"
+        s = "{0} (label = {1}, mean prediction = {2}, LRP sum total = {3:.2f}, LRP sum gene = {4:.2f})"
         t = s.format(plot_title[0], plot_title[1], plot_title[2],
                      attributions_mean[0].sum(),
                      attributions_mean[0][idx_gene,:].sum()
         )
+        # plot the input values
         if features_3d:
-            self._fancy_heatmap_3D(fig, outer_grid[0], self.features_raw[idx_gene, :].T, t)
+            self._fancy_heatmap_3D(fig, outer_grid[0], self.features_raw[idx_gene, :].T, title=t)
         else:
-            self._barplot_2D(fig, outer_grid[0], self.features_raw[idx_gene, :].reshape(-1), t)
-        # LRP attributions for each feature
+            self._barplot_2D(fig, outer_grid[0], self.features_raw[idx_gene, :].reshape(-1),
+                             y_name='Input Features', title=t)
+        # plot LRP attributions for each feature
         if features_3d:
             self._fancy_heatmap_3D(fig, outer_grid[1], attributions_mean[0][idx_gene, :].T)
         else:
-            self._barplot_2D(fig, outer_grid[1], attributions_mean[0][idx_gene, :])
+            self._barplot_2D(fig, outer_grid[1], attributions_mean[0][idx_gene, :],
+                             attributions_std[0][idx_gene, :],
+                             y_name='LRP Contributions')
         
-        #self._colorize_by_omics(ax[1])
         # most important neighbors according LRP feature matrix (rows with highest sums)
         top_n = 20
         if features_3d:
@@ -280,12 +283,12 @@ class LRP:
             sums = attributions_mean[0].sum(axis=1)
         idx_top = np.argpartition(sums, -top_n)[-top_n:]
         idx_top = idx_top[np.argsort(sums[idx_top])][::-1]
+        print (idx_top)
         x = np.arange(top_n)
         x_labels = [self.node_names[i] for i in idx_top]
+        print (len(x_labels), len(x), sums[idx_top].shape)
         ax = plt.Subplot(fig, outer_grid[2])
-        ax.bar(x, sums[idx_top])
-        ax.set_xticklabels(x_labels)
-        ax.set_xticks(x)
+        ax.bar(x, sums[idx_top], tick_label=x_labels)
         ax.set_ylabel("LRP sum features")
         for i, gene in enumerate(x_labels):
             if gene == gene_name:
@@ -301,10 +304,12 @@ class LRP:
             if features_3d:
                 self._fancy_heatmap_3D(fig, outer_grid[3+k],
                                        attributions_mean[0][idx, :].T,
-                                       self.node_names[idx])
+                                       title=self.node_names[idx])
             else:
                 self._barplot_2D(fig, outer_grid[3+k], attributions_mean[0][idx, :].reshape(-1),
-                                 self.node_names[idx])
+                                 std=attributions_std[0][idx, :].reshape(-1),
+                                 y_name='LRP Contributions',
+                                 title=self.node_names[idx])
     
         # most important neighbors according to LRP support
         neighbors = most_important_pos + most_important_neg[::-1]
@@ -319,13 +324,6 @@ class LRP:
             if gene in self.genes_pos:
                 ax_last.get_xticklabels()[i].set_color("red")
         # finalize
-        """
-        for i in range(nrows):
-            utils._plot_hide_top_right(outer_grid[i])
-        for axis in ax:
-            for tick in axis.get_xticklabels():
-                tick.set_rotation(90)
-        """
         plt.tight_layout()
         fig.savefig(os.path.join(self.out_dir, gene_name+'.pdf'))
         fig.clf()
@@ -475,7 +473,8 @@ def main():
                         dest='genes',
                         default=None)
 
-    parser.add_argument('-a', '--all', help='Compute LRP for all genes', dest='all_genes', default=False, type=bool)
+    parser.add_argument('-a', '--all', help='Compute LRP for all genes', dest='all_genes',
+                        default=False, type=bool)
     args = parser.parse_args()
 
     # decide whether to compute LRP for all genes
