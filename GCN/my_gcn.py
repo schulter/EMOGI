@@ -93,29 +93,23 @@ class MyGraphConvolution(GraphConvolution):
 
     def _call(self, inputs):
         x = inputs
-        #print ("input shape: {}".format(x.get_shape()))
         # dropout
         x = tf.nn.dropout(x, rate=self.dropout)
 
         if len(x.get_shape().as_list()) == 3:
-            print ("3D convolution")
             supports = list()
             for i in range(len(self.support)):
                 W = self.vars['weights_' + str(i)]
                 pre_sup = tf.einsum("nij,ikj->nkj", x, W)
-                #print ("Pre-sup 3D shape: {}".format(pre_sup.get_shape()))
                 gc_channels = []
                 for j in range(x.get_shape().as_list()[2]):
                     A = self.support[i]
                     sup = dot(A, pre_sup[:, :, j], sparse=self.sparse_network)
                     gc_channels.append(sup)
                 support = tf.add_n(gc_channels)
-                #print ("Support 3D shape: {}".format(support.get_shape()))
                 supports.append(support)
             output = tf.add_n(supports)
-            #print (output.get_shape())
         else:
-            print ("2D convolution")
             # convolve
             supports = list()
             for i in range(len(self.support)):
