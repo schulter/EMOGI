@@ -212,7 +212,7 @@ class LRP:
             ax = plt.Subplot(fig, inner[c])
             xticklabels = False
             if c == 2:
-                xticklabels = range(x.shape[1]) #self.feature_names
+                xticklabels = self.feature_names
             sns.heatmap(x[c, :].reshape(1, -1), ax=ax, xticklabels=xticklabels, cbar=False, cmap=cmaps[c],
                         cbar_kws={'use_gridspec': False, 'orientation': 'vertical'})
             ax.set_yticklabels([omics[c]], rotation=0, fontsize=10)
@@ -222,7 +222,6 @@ class LRP:
         plt.subplots_adjust(bottom=0.05, hspace=0.05, wspace=0)
 
     def _barplot_2D(self, fig, outer_grid, x, std=None, y_name=None, title=None):
-        print (x.shape, len(self.feature_names))
         ax = plt.Subplot(fig, outer_grid)
         ax.bar(np.arange(len(self.feature_names)), x, yerr=std, tick_label=self.feature_names)
         if not title is None:
@@ -235,7 +234,9 @@ class LRP:
         fig.add_subplot(ax)
 
     def _save_attribution_plots(self, attributions_mean, attributions_std, nodes_attr, gene_name):
-        features_3d = len(self.features_raw) == 3
+        # decide which plots to use based on 3D or 2D tensor
+        features_3d = len(self.features_raw.shape) == 3
+
         # get most important neighbors for plot
         nodes_sorted = sorted(nodes_attr.items(), key=lambda x: x[1][0])
         nodes_sorted = [(self.node_names[idx], attr) for idx, attr in nodes_sorted]
@@ -283,10 +284,8 @@ class LRP:
             sums = attributions_mean[0].sum(axis=1)
         idx_top = np.argpartition(sums, -top_n)[-top_n:]
         idx_top = idx_top[np.argsort(sums[idx_top])][::-1]
-        print (idx_top)
         x = np.arange(top_n)
         x_labels = [self.node_names[i] for i in idx_top]
-        print (len(x_labels), len(x), sums[idx_top].shape)
         ax = plt.Subplot(fig, outer_grid[2])
         ax.bar(x, sums[idx_top], tick_label=x_labels)
         ax.set_ylabel("LRP sum features")

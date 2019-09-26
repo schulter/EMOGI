@@ -181,27 +181,30 @@ def train_gcn(data_path, n_support, hidden_dims, learning_rate,
     input_data_path = data_path
     data = gcnIO.load_hdf_data(input_data_path, feature_name='features')
     adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feature_names = data
+    #features = features[:, :, 0] # to simulate 2D
     print("Read data from: {}".format(input_data_path))
 
     # preprocess features
     num_feat = features.shape[1]
     if num_feat > 1:
-        features = utils.preprocess_features(lil_matrix(features))
+        #features = utils.preprocess_features(lil_matrix(features))
+        #features = utils.sparse_to_tuple(lil_matrix(features))
+        pass
     else:
         print("Not row-normalizing features because feature dim is {}".format(num_feat))
-        features = utils.sparse_to_tuple(lil_matrix(features))
+        #features = utils.sparse_to_tuple(lil_matrix(features))
 
     # get higher support matrices
     support, num_supports = utils.get_support_matrices(adj, n_support)
 
     # create placeholders
     placeholders = {
-        'support': [tf.sparse_placeholder(tf.float32) for _ in range(num_supports)],
-        'features': tf.sparse_placeholder(tf.float32, shape=features[2]),
-        'labels': tf.placeholder(tf.float32, shape=(None, y_train.shape[1])),
-        'labels_mask': tf.placeholder(tf.int32),
-        'dropout': tf.placeholder_with_default(0., shape=()),
-        'num_features_nonzero': tf.placeholder(tf.int32)
+        'support': [tf.sparse_placeholder(tf.float32, name='support_{}'.format(i)) for i in range(num_supports)],
+        'features': tf.placeholder(tf.float32, shape=features.shape, name='Features'),
+        'labels': tf.placeholder(tf.float32, shape=(None, y_train.shape[1]), name='Labels'),
+        'labels_mask': tf.placeholder(tf.int32, shape=train_mask.shape, name='LabelsMask'),
+        'dropout': tf.placeholder_with_default(0., shape=(), name='Dropout')
+        #'num_features_nonzero': tf.placeholder(tf.int32, shape=())
     }
     hidden_dims = [int(x) for x in hidden_dims]
 
@@ -209,7 +212,7 @@ def train_gcn(data_path, n_support, hidden_dims, learning_rate,
     with tf.Session() as sess:
         # initialize model and metrics
         model = MYGCN(placeholders=placeholders,
-                      input_dim=features[2][1],
+                      input_dim=features.shape[1],
                       learning_rate=learning_rate,
                       weight_decay=weight_decay,
                       num_hidden_layers=len(hidden_dims),
@@ -291,7 +294,8 @@ if __name__ == "__main__":
         print("Data is not hdf5 container. Exit now.")
         sys.exit(-1)
 
-    output_dir = gcnIO.create_model_dir()
+    #output_dir = gcnIO.create_model_dir()
+    output_dir = '../data/GCN/training/2019_08_30_15_21_15'
     predictions = train_gcn(data_path=args.data,
                             n_support=args.support,
                             hidden_dims=args.hidden_dims,
