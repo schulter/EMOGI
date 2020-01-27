@@ -7,6 +7,8 @@ from sklearn.metrics import roc_auc_score
 from sklearn.metrics import roc_curve
 from sklearn.metrics import precision_recall_curve, average_precision_score
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+import seaborn as sns
 
 
 def str_to_num(s):
@@ -24,6 +26,66 @@ def _plot_hide_top_right(ax):
     ax.spines['top'].set_visible(False)
     ax.yaxis.set_ticks_position('left')
     ax.xaxis.set_ticks_position('bottom')
+
+
+def colorize_by_omics(axes, feature_names):
+    # look at feature names and colorize the bars in the axes object
+    for idx, feat in enumerate(feature_names):
+        if feat.startswith("MF:"):
+            col = "#800000"
+        elif feat.startswith("METH:"):
+            col = "#00008b"
+        elif feat.startswith("GE:"):
+            col = "#006400"
+        else:
+            col = "#001f3f"
+        axes.patches[idx].set_facecolor(col)
+        axes.get_xticklabels()[idx].set_color(col)
+
+
+def lrp_heatmap_plot(fig, outer_grid, x, xlabels, title=None):
+    x = np.abs(x)
+    if not len(x.shape) == 2: # we have only 1D input, make it 2D
+        x = x.reshape(16, 3, order='F')
+    inner = gridspec.GridSpecFromSubplotSpec(3, 1, hspace=0, subplot_spec=outer_grid)
+    omics = ['Mutation', 'Methylation', 'Expression']
+    cmaps = [sns.color_palette("Reds"), sns.color_palette("Blues"), sns.color_palette("Greens")]
+    vmax = x.max()
+    vmin = x.min()
+    for c in range(3):
+        ax = plt.Subplot(fig, inner[c])
+        xticklabels = False
+        if c == 2: # last omics
+            xticklabels = [i.split(':')[1] for i in xlabels if i.startswith('MF:')]
+            #xticklabels = xlabels
+        sns.heatmap(x[:, c].reshape(1, -1), ax=ax, xticklabels=xticklabels,
+                    cbar=False, cmap=cmaps[c],
+                    cbar_kws={'use_gridspec': False, 'orientation': 'vertical'},
+                    vmax=vmax, vmin=vmin)
+        ax.set_yticklabels([omics[c]], rotation=0, fontsize=10)
+        if c == 2:
+            ax.set_xticklabels(xticklabels, rotation=90, fontsize=10)
+        if not title is None and c == 0:
+            ax.set_title(title, fontsize=16)
+        fig.add_subplot(ax)
+    plt.subplots_adjust(bottom=0.05, hspace=0.05, wspace=0)
+
+
+
+def lrp_barplot(fig, outer_grid, x, xlabels, std=None, y_name=None, title=None):
+    print (x.shape)
+    ax = plt.Subplot(fig, outer_grid)
+    ax.bar(np.arange(len(xlabels)), x, yerr=std, tick_label=xlabels)
+    print ("not failed till here")
+    if not title is None:
+        ax.set_title(title)
+    if not y_name is None:
+        ax.set_ylabel(y_name)
+    colorize_by_omics(ax, xlabels)
+    for tick in ax.get_xticklabels():
+        tick.set_rotation(90)
+    fig.add_subplot(ax)
+
 
 
 def parse_index_file(filename):
