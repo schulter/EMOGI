@@ -143,11 +143,10 @@ class LRP:
                 mask_gene = np.zeros((self.features.shape[0], 1))
                 mask_gene[idx_gene] = 1
                 attributions =  de.explain(method="elrp",
-                                  T=tf.nn.sigmoid(model.outputs) * mask_gene,
+                                  T=tf.nn.sigmoid(model.outputs),
                                   X=[placeholders['features'], *placeholders["support"]],
-                                  xs=[self.features, *self.support])
-                #print ("Attribution shape: {}".format(attributions[0].shape))
-                #print (len(attributions))
+                                  xs=[self.features, *self.support],
+                                  ys=mask_gene)
         tf.reset_default_graph()
         return attributions
 
@@ -189,51 +188,8 @@ class LRP:
                     *edge, nodes_attr[edge[1]][0], self.node_names[edge[1]]))
 
 
-    def _colorize_by_omics(self, axes):
-        # look at feature names and colorize the bars in the axes object
-        for idx, feat in enumerate(self.feature_names):
-            if feat.startswith("MF:"):
-                col = "#800000"
-            elif feat.startswith("METH:"):
-                col = "#00008b"
-            elif feat.startswith("GE:"):
-                col = "#006400"
-            else:
-                col = "#001f3f"
-            axes.patches[idx].set_facecolor(col)
-            axes.get_xticklabels()[idx].set_color(col)
 
-
-    def _fancy_heatmap_3D(self, fig, outer_grid, x, title=None):
-        inner = gridspec.GridSpecFromSubplotSpec(3, 1, hspace=0, subplot_spec=outer_grid)
-        omics = ['Mutation', 'Methylation', 'Expression']
-        cmaps = [sns.color_palette("Reds"), sns.color_palette("Blues"), sns.color_palette("Greens")]
-        for c in range(3):
-            ax = plt.Subplot(fig, inner[c])
-            xticklabels = False
-            if c == 2:
-                xticklabels = self.feature_names
-            sns.heatmap(x[c, :].reshape(1, -1), ax=ax, xticklabels=xticklabels, cbar=False, cmap=cmaps[c],
-                        cbar_kws={'use_gridspec': False, 'orientation': 'vertical'})
-            ax.set_yticklabels([omics[c]], rotation=0, fontsize=10)
-            if not title is None and c == 0:
-                ax.set_title(title, fontsize=16)
-            fig.add_subplot(ax)
-        plt.subplots_adjust(bottom=0.05, hspace=0.05, wspace=0)
-
-    def _barplot_2D(self, fig, outer_grid, x, std=None, y_name=None, title=None):
-        ax = plt.Subplot(fig, outer_grid)
-        ax.bar(np.arange(len(self.feature_names)), x, yerr=std, tick_label=self.feature_names)
-        if not title is None:
-            ax.set_title(title)
-        if not y_name is None:
-            ax.set_ylabel(y_name)
-        self._colorize_by_omics(ax)
-        for tick in ax.get_xticklabels():
-            tick.set_rotation(90)
-        fig.add_subplot(ax)
-
-    def _save_attribution_plots(self, attributions_mean, attributions_std, nodes_attr, gene_name):
+    def _save_attribution_plots(self, attributions_mean, attributions_std, nodes_attr, gene_name, heatmap=True):
         # decide which plots to use based on 3D or 2D tensor
         features_3d = len(self.features_raw.shape) == 3
 
@@ -263,18 +219,24 @@ class LRP:
                      attributions_mean[0][idx_gene,:].sum()
         )
         # plot the input values
-        if features_3d:
-            self._fancy_heatmap_3D(fig, outer_grid[0], self.features_raw[idx_gene, :].T, title=t)
+        if heatmap:
+            utils.lrp_heatmap_plot(fig, outer_grid[0],
+                                   self.features_raw[idx_gene, :],
+                                   self.feature_names,
+                                   title=t)
         else:
-            self._barplot_2D(fig, outer_grid[0], self.features_raw[idx_gene, :].reshape(-1),
-                             y_name='Input Features', title=t)
+            utils.lrp_barplot(fig, outer_grid[0], self.features_raw[idx_gene, :].reshape(-1),
+                              self.feature_names,
+                              y_name='Input Features', title=t)
         # plot LRP attributions for each feature
-        if features_3d:
-            self._fancy_heatmap_3D(fig, outer_grid[1], attributions_mean[0][idx_gene, :].T)
+        if heatmap:
+            utils.lrp_heatmap_plot(fig, outer_grid[1], attributions_mean[0][idx_gene, :],
+                                   self.feature_names)
         else:
-            self._barplot_2D(fig, outer_grid[1], attributions_mean[0][idx_gene, :],
-                             attributions_std[0][idx_gene, :],
-                             y_name='LRP Contributions')
+            utils.lrp_barplot(fig, outer_grid[1], attributions_mean[0][idx_gene, :],
+                              self.feature_names,
+                              attributions_std[0][idx_gene, :],
+                              y_name='LRP Contributions')
         
         # most important neighbors according LRP feature matrix (rows with highest sums)
         top_n = 20
@@ -300,12 +262,13 @@ class LRP:
         # LRP attributions of three most important neighbors according to LRP row sums
         x = np.arange(len(self.feature_names))
         for k, idx in enumerate(idx_top[:n_neighbors]):
-            if features_3d:
-                self._fancy_heatmap_3D(fig, outer_grid[3+k],
-                                       attributions_mean[0][idx, :].T,
+            if heatmap:
+                utils.lrp_heatmap_plot(fig, outer_grid[3+k],
+                                       attributions_mean[0][idx, :].T, self.feature_names,
                                        title=self.node_names[idx])
             else:
-                self._barplot_2D(fig, outer_grid[3+k], attributions_mean[0][idx, :].reshape(-1),
+                utils.lrp_barplot(fig, outer_grid[3+k], attributions_mean[0][idx, :].reshape(-1),
+                                 self.feature_names,
                                  std=attributions_std[0][idx, :].reshape(-1),
                                  y_name='LRP Contributions',
                                  title=self.node_names[idx])
@@ -329,7 +292,7 @@ class LRP:
         plt.close('all')
 
 
-    def _compute_lrp_single_gene(self, gene_name, only_attr=False):
+    def _compute_lrp_single_gene(self, gene_name, only_attr=False, heatmap=True):
         if not gene_name in self.node_names:
             print("'{}' not found in gene list. Skipping.".format(gene_name))
             return
@@ -341,23 +304,137 @@ class LRP:
             for i in range(len(attributions)):
                 attributions[i].append(cv_attributions[i])
         # compute mean and std over CV folds
+
         attributions = [np.array(x) for x in attributions]
         attributions_std = [np.std(x, axis=0) for x in attributions]
         attributions = [np.mean(x, axis=0) for x in attributions]
-        #[print(i.shape) for i in attributions]
+
         # return attributions if plots are not needed
         if only_attr == True:
             return attributions, attributions_std
-        # get and save most import network neighbors
-        edge_list, nodes_attr = self._get_top_neighbors(idx_gene=self.node_names.index(gene_name),
-                                                        attr_mean=attributions,
-                                                        attr_std=attributions_std)
-        self._save_edge_list(edge_list, nodes_attr, gene_name)
-        # plot feature and neighbor attributions
-        self._save_attribution_plots(attributions, attributions_std, nodes_attr, gene_name)
+        # get and save most import network neighbors otherwise
+        else:
+            edge_list, nodes_attr = self._get_top_neighbors(idx_gene=self.node_names.index(gene_name),
+                                                            attr_mean=attributions,
+                                                            attr_std=attributions_std)
+            self._save_edge_list(edge_list, nodes_attr, gene_name)
+            # plot feature and neighbor attributions
+            self._save_attribution_plots(attributions, attributions_std, nodes_attr, gene_name, heatmap=heatmap)
 
 
-    def plot_lrp(self, gene_names, n_processes=1):
+    def _compute_lrp_all_genes_single_cv(self, cv_dir):
+        """Computes LRP for a number of genes for one CV only.
+
+        This function computes the LRP for a (high) number of genes but only for
+        a single CV run. This is much faster than computing all 10 runs per
+        gene at a time.
+
+        Parameters:
+        ----------
+        cv_dir : str
+            The folder from which to reconstruct the model
+
+        Returns:
+        A tuple with feature and neighbor contributions. The feature contributions
+        have the same shape as the features and each row contains the LRP for one
+        gene in the same order as the node_names in the HDF5 container.
+        The neighbor contribution is a list of numpy arrays in the same shape as
+        the adjacency matrix of the graph (but is not sparse).
+
+
+        """
+        neighbor_contribution = [np.zeros_like(self.network) for _ in range(self.params["support"] + 1)]
+        feature_contribution = np.zeros_like(self.features)
+
+        ckpt = tf.train.get_checkpoint_state(checkpoint_dir=cv_dir)
+        placeholders = {
+            'support': [tf.placeholder(tf.float32, shape=self.support[i].shape) for i in range(len(self.support))],
+            'features': tf.placeholder(tf.float32, shape=self.features.shape),
+            'labels': tf.placeholder(tf.float32, shape=(None, self.y_train.shape[1])),
+            'labels_mask': tf.placeholder(tf.int32, shape=self.train_mask.shape),
+            'dropout': tf.placeholder_with_default(0., shape=()),
+            'num_features_nonzero': tf.placeholder(tf.int32, shape=())
+        }
+        with tf.Session() as sess:
+            with DeepExplain(session=sess) as de:
+                # create model and placeholders
+                model = MYGCN(placeholders=placeholders,
+                              input_dim=self.features.shape[1],
+                              learning_rate=self.params['lr'],
+                              weight_decay=self.params['decay'],
+                              num_hidden_layers=len(self.params['hidden_dims']),
+                              hidden_dims=self.params['hidden_dims'],
+                              pos_loss_multiplier=self.params['loss_mul'],
+                              logging=False, sparse_network=False)
+                model.load(ckpt.model_checkpoint_path, sess)
+
+                # get the explainer
+                explainer = de.get_explainer(method='elrp',
+                                             T=tf.nn.sigmoid(model.outputs),
+                                             X=[placeholders['features'], *placeholders["support"]]
+                )
+
+                # run the explain function for every gene
+                for idx_g, gene_name in enumerate(self.node_names):
+                    mask_gene = np.zeros((self.features.shape[0], 1))
+                    mask_gene[idx_g] = 1
+                    attributions = explainer.run(xs=[self.features, *self.support],
+                                                 ys=mask_gene
+                    )
+                    feature_contribution[idx_g, :] = attributions[0][idx_g, :]
+                    for support in range(len(neighbor_contribution)):
+                        neighbor_contribution[support] += attributions[support+1]
+                    if idx_g > 0 and idx_g % 500 == 0:
+                        print ("Computed LRP for {} genes so far".format(idx_g))
+        tf.reset_default_graph()
+        return feature_contribution, neighbor_contribution
+
+    def compute_lrp_all_genes_fast(self):
+        """Compute the LRP for all genes efficiently.
+        The function computes the LRP for all genes by iterating over all
+        genes for one CV first and only then iterating over the CV runs.
+        This way, the computational graph in TF can be reused and time saved.
+
+        The following output files are created but no values are returned:
+        feat_mean_all.npy
+            -> mean attributions, matrix of shape (number of genes, number of features),
+               each row represents the LRP run of the respective gene
+        feat_std_all.npy
+            -> standard deviation of attributions, rest as above
+        support_X_mean_sum.npy
+            -> mean support attributions summed over all genes,
+               matrix of shape (number of genes, number of genes),
+               one output file per level of support (i.e. X == 0, 1, 2, etc.)
+        """
+        # the final matrices containing the results in the end
+        neighbor_contributions = [[] for _ in range(self.params["support"] + 1)]
+        feature_contributions = []
+    
+        # iterate through CV dirs
+        cv_count = 0
+        for cv_dir in self.cv_dirs:
+            attr_features, attr_neighbors = self._compute_lrp_all_genes_single_cv(cv_dir)
+            feature_contributions.append(attr_features)
+            for support in range(self.params["support"] + 1):
+                neighbor_contributions[support].append(attr_neighbors[support])
+            cv_count += 1
+            print ("[CV {} finished] Computed LRP for all genes in {}".format(cv_count, cv_dir))
+        
+        # compute mean and std
+        feature_contribution_final = np.mean(feature_contributions, axis=0)
+        feature_contribution_std = np.std(feature_contributions, axis=0)
+        # since we have s support matrices, we sum over axis 1 to get shape: (s x n x n)
+        neighbor_contributions_final = np.mean(neighbor_contributions, axis=1)
+
+        # save to disk
+        def save_to_disk():
+            np.save(os.path.join(self.out_dir, "feat_mean_all.npy"), feature_contribution_final)
+            np.save(os.path.join(self.out_dir, "feat_std_all.npy"), feature_contribution_std)
+            for idx, mat in enumerate(neighbor_contributions_final):
+                np.save(os.path.join(self.out_dir, "support_{}_mean_sum.npy".format(idx)), mat)
+        save_to_disk()
+
+    def plot_lrp(self, gene_names, n_processes=1, heatmap_plots=True):
         """ Perform LRP and plot attributions for a list of genes.
 
         This function performs LRP for a list of genes and saves the feature attributions
@@ -380,7 +457,7 @@ class LRP:
             gene_names = [gene_names]
         if n_processes == 1:
             for gene_name in gene_names:
-                self._compute_lrp_single_gene(gene_name)
+                self._compute_lrp_single_gene(gene_name, heatmap=heatmap_plots)
         else:
             # using a Pool results in memory errors, because something is hitting
             # a 32bit integer limit, therefore manual processing is used
@@ -388,7 +465,7 @@ class LRP:
             for chunk in chunks:
                 ps = []
                 for gene_name in chunk:
-                    ps.append(Process(target=self._compute_lrp_single_gene, args=(gene_name,)))
+                    ps.append(Process(target=self._compute_lrp_single_gene, args=(gene_name, heatmap_plots)))
                     ps[-1].start()
                 for p in ps:
                     p.join()
@@ -439,10 +516,10 @@ class LRP:
 
         # save matrices in numpy format
         def save_to_disk():
-            np.save(os.path.join(self.out_dir, "feat_mean_all.npy"), feat_mean_all)
-            np.save(os.path.join(self.out_dir, "feat_std_all.npy"), feat_std_all)
+            np.save(os.path.join(self.out_dir, "feat_mean_all_slow.npy"), feat_mean_all)
+            np.save(os.path.join(self.out_dir, "feat_std_all_slow.npy"), feat_std_all)
             for idx, mat in enumerate(support_mean_sum):
-                np.save(os.path.join(self.out_dir, "support_{}_mean_sum.npy".format(idx)), mat)
+                np.save(os.path.join(self.out_dir, "support_{}_mean_sum_slow.npy".format(idx)), mat)
 
         # run LRP for every gene and save results into aforementioned matrices
         for idx_g, gene_name in enumerate(self.node_names):
@@ -474,12 +551,14 @@ def main():
 
     parser.add_argument('-a', '--all', help='Compute LRP for all genes', dest='all_genes',
                         default=False, type=bool)
+    parser.add_argument('-b', '--bars', help='Plot Barplots', dest='bar_plot',
+                        default=False, type=bool)
     args = parser.parse_args()
 
     # decide whether to compute LRP for all genes
     if args.all_genes:
         interpreter = LRP(model_dir=args.model_dir)
-        interpreter.compute_lrp_all_genes()
+        interpreter.compute_lrp_all_genes_fast()
 
     # get some genes to do interpretation for
     elif args.genes is None:
@@ -488,13 +567,14 @@ def main():
                  "ARNT", "KRAS", "SMAD6", "SMAD4",  "STAT1", "MGMT", "NCOR2",
                  "RUNX1", "KAT7", "IDH1", "IDH2", "DROSHA", "WRN", "FOXA1",
                  "RAC1", "BIRC3", "DNM2", "MYC", "BRAF", "EGFR", "FGFR1",
-                 "FGFR2", "FGFR3",
+                 "FGFR2", "FGFR3", "TTN", "TWIST1",
                  "APC", "ERBB3", "ERBB2", "AR", "NRAS", "HDAC3"]
+        interpreter = LRP(model_dir=args.model_dir)
+        interpreter.plot_lrp(genes)
     else:
         genes = args.genes
-
-    interpreter = LRP(model_dir=args.model_dir)
-    interpreter.plot_lrp(genes)
+        interpreter = LRP(model_dir=args.model_dir)
+        interpreter.plot_lrp(genes, heatmap_plots=not args.bar_plot)
     # examples:
     # interpreter = LRP(model_dir="/project/lincrnas/roman/diseasegcn/data/GCN/training/2019_03_06_15_45_33/")
     # interpreter.plot_lrp(["TP53", "KRAS", "TTN", "MYC", "TWIST1", "HIST1H3E", "APC"], n_processes=4)
