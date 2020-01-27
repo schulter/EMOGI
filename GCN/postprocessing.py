@@ -229,6 +229,221 @@ def compute_average_PR_curve(model_dir, pred_all, sets_all):
     plt.close(fig=fig)
 
 
+def compute_predictions_competitors(model_dir, network_name, network_measures=False, plot_correlations=True, verbose=False):
+    """Compute predictions on the test set for the competing methods.
+
+    This function 
+    """
+    # load data
+    _, data_file = gcnIO.load_hyper_params(model_dir)
+    if os.path.isdir(data_file): # FIXME: This is hacky and not guaranteed to work at all!
+        network_name = None
+        for f in os.listdir(data_file):
+            if network_name is None:
+                network_name = f.split('_')[0].upper()
+            else:
+                assert (f.split('_')[0].upper() == network_name)
+        fname = '{}_{}.h5'.format(network_name, model_dir.strip('/').split('/')[-1])
+        data_file = os.path.join(data_file, fname)
+    data = gcnIO.load_hdf_data(data_file)
+    network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feat_names = data
+    features = features.reshape(features.shape[0], -1) # flatten 3D features
+
+    # read predictions for EMOGI
+    predictions = load_predictions(model_dir)
+
+    # prepare the features for easy usage of scikit learn API
+    X_train = features[train_mask.astype(np.bool)]
+    y_train_svm = y_train[train_mask.astype(np.bool)]
+    X_test = features[test_mask.astype(np.bool)]
+
+    # train random forest on the features only and predict for test set and all genes
+    rf = RandomForestClassifier(n_estimators=100)
+    rf.fit(X_train, y_train_svm.reshape(-1))
+    pred_rf = rf.predict_proba(X_test)
+    if verbose: print ("Number of predicted genes in Test set (RF): {}".format(pred_rf.argmax(axis=1).sum()))
+    pred_rf_all = rf.predict_proba(features)
+
+    if verbose: print ("RF predicts {} genes in total".format(np.argmax(pred_rf_all, axis=1).sum()))
+    if plot_correlations:
+        compute_degree_correlation(model_dir, pd.Series(pred_rf_all[:, 1], index=node_names[:, 1]),
+                                os.path.join(model_dir, 'corr_RF_degree.svg')
+        )
+    # compute performance for network measures
+    if network_measures:
+        G = nx.from_pandas_adjacency(pd.DataFrame(network, index=node_names[:, 1],
+                                                columns=node_names[:, 1]))
+        G.remove_edges_from(nx.selfloop_edges(G))
+        G = max(nx.connected_component_subgraphs(G), key=len)
+        nodes = pd.DataFrame(node_names, columns=['ID', 'Name']).set_index('Name')
+        node_degree = pd.DataFrame(network, index=node_names[:, 1],columns=node_names[:, 1]).sum(axis=1)
+        nd_baseline = network.sum(axis=0)[test_mask.astype(np.bool)]
+        cores = nx.algorithms.core_number(G)
+        nodes_with_core = nodes.join(pd.Series(cores).to_frame(name="Core"))
+        nodes_with_core.loc[nodes_with_core.Core.isnull(), 'Core'] = 0
+        if plot_correlations:
+            compute_degree_correlation(model_dir, nodes_with_core.Core,
+                                    os.path.join(model_dir, 'corr_core_degree.svg')
+            )
+        core_baseline = nodes_with_core[test_mask.astype(np.bool)].Core
+        cluster_coeff = nx.algorithms.cluster.clustering(G)
+        nodes_with_cc = nodes.join(pd.Series(cluster_coeff).to_frame(name="Clustering_Coeff"))
+        nodes_with_cc.loc[nodes_with_cc.Clustering_Coeff.isnull(), 'Clustering_Coeff'] = 0
+        if plot_correlations:
+            compute_degree_correlation(model_dir, nodes_with_cc.Clustering_Coeff,
+                                os.path.join(model_dir, 'corr_cc_degree.svg')
+            )
+        cc_baseline = nodes_with_cc[test_mask.astype(np.bool)].Clustering_Coeff
+
+        betweenness = nx.algorithms.centrality.approximate_current_flow_betweenness_centrality(G)
+        nodes_with_bn = nodes.join(pd.Series(betweenness).to_frame(name="Betweenness"))
+        nodes_with_bn.loc[nodes_with_bn.Betweenness.isnull(), 'Betweenness'] = 0
+        if plot_correlations:
+            compute_degree_correlation(model_dir, nodes_with_bn.Betweenness,
+                                os.path.join(model_dir, 'corr_betweenness_degree.svg')
+            )
+        bn_baseline = nodes_with_bn[test_mask.astype(np.bool)].Betweenness
+
+        """
+        tr_idx = np.logical_or(y_train.reshape(-1), y_val.reshape(-1))
+        c_idx = np.logical_or(tr_idx, y_test.reshape(-1))
+        cancer_genes = node_names[c_idx, 1]
+        cancer_gene_neighbors = {}
+        for node in G.nodes():
+            def _get_num_cancer_genes(n):
+                num_c_neighbors = len([i for i in G.neighbors(n) if i in cancer_genes])
+                num_neighbors =  len([i for i in G.neighbors(n)])
+                return num_c_neighbors / float(num_neighbors)
+            cancer_gene_neighbors[node] = _get_num_cancer_genes(node)
+        nodes['Cancer_Neighbors'] = nodes.index.map(cancer_gene_neighbors)
+        cn_baseline = nodes[test_mask.astype(np.bool)].Cancer_Neighbors
+        cn_baseline.loc[cn_baseline.isnull()] = 0
+        """
+    # train logistic regression on the features only and predict for test set and all genes
+    logreg = LogisticRegression(class_weight='balanced', solver='lbfgs')
+    logreg.fit(X_train, y_train_svm.reshape(-1))
+    pred_lr = logreg.predict_proba(X_test)
+    if verbose: print ("Number of predicted genes in Test set (LogReg): {}".format(pred_lr.argmax(axis=1).sum()))
+    pred_lr_all = logreg.predict_proba(features)
+    if plot_correlations:
+        compute_degree_correlation(model_dir, pd.Series(pred_lr_all[:, 1], index=node_names[:, 1]),
+                                os.path.join(model_dir, 'corr_logreg_degree.svg')
+        )
+    if verbose: print ("LogReg predicts {} genes in total".format(np.argmax(pred_lr_all, axis=1).sum()))
+
+    # train SVM on deepWalk embeddings
+    fname_dw = '../data/pancancer/deepWalk_results/{}_embedding_CPDBparams.embedding'.format(network_name.upper())
+    deepwalk_embeddings = pd.read_csv(fname_dw, header=None, skiprows=1, sep=' ')
+    deepwalk_embeddings.columns = ['Node_Id'] + deepwalk_embeddings.columns[1:].tolist()
+    deepwalk_embeddings.set_index('Node_Id', inplace=True)
+    n_df = pd.DataFrame(node_names, columns=['ID', 'Name'])
+    embedding_with_names = deepwalk_embeddings.join(n_df)
+    X_dw = embedding_with_names.set_index('Name').reindex(n_df.Name).drop('ID', axis=1)
+    X_train_dw = X_dw[train_mask.astype(np.bool)]
+    X_test_dw = X_dw[test_mask.astype(np.bool)]
+    clf_dw = SVC(kernel='rbf', class_weight='balanced', probability=True, gamma='auto')
+    clf_dw.fit(X_train_dw, y_train_svm.reshape(-1))
+    pred_deepwalk_all = clf_dw.predict_proba(X_dw)
+    if plot_correlations:
+        compute_degree_correlation(model_dir, pd.Series(pred_deepwalk_all[:, 1], index=node_names[:, 1]),
+                                os.path.join(model_dir, 'corr_deepwalk_degree.svg')
+        )
+
+    # load results from graph attention networks (GAT)
+    if network_name.upper() == 'CPDB':
+        gat_results = np.load('../data/pancancer/gat_results/results_GAT_CPDB.npy')
+    elif network_name.upper() == 'IREF':
+        gat_results = np.load('../data/pancancer/gat_results/results_GAT_IREF.npy')
+    elif network_name.upper() == 'MULTINET':
+        gat_results = np.load('../data/pancancer/gat_results/results_GAT_MULTINET.npy')
+    elif network_name.upper() == 'STRING':
+        gat_results = np.load('../data/pancancer/gat_results/results_GAT_STRING.npy')
+    elif network_name.upper() == 'IREFNEW':
+        gat_results = np.load('../data/pancancer/gat_results/results_GAT_IREFNEW.npy')
+    elif network_name.upper() == 'PCNET':
+        gat_results = np.load('../data/pancancer/gat_results/results_GAT_PCNET.npy')
+    else:
+        gat_results = None
+        print ("Network {} not recognized for GAT performance.".format(network_name))
+    if not gat_results is None:
+        gat_results = gat_results.reshape(gat_results.shape[1], gat_results.shape[2])
+        if plot_correlations:
+            compute_degree_correlation(model_dir, pd.Series(gat_results[:, 1], index=node_names[:, 1]),
+                                    os.path.join(model_dir, 'corr_GAT_degree.svg')
+            )
+
+
+    # train pagerank on the network
+    scores, names = pagerank.pagerank(network, node_names)
+    pr_df = pd.DataFrame(scores, columns=['Number', 'Score']) # get the results in same order as our data
+    names = pd.DataFrame(names, columns=['ID', 'Name'])
+    pr_pred_all = pr_df.join(names, on='Number', how='inner')
+    pr_pred_all.drop_duplicates(subset='Name', inplace=True)
+    node_names_df = pd.DataFrame(node_names, columns=['ID', 'Name']).set_index('ID')
+    pr_pred_all = pr_pred_all.set_index('Name').reindex(node_names_df.Name)
+    if plot_correlations:
+        compute_degree_correlation(model_dir, pr_pred_all.Score,
+                                os.path.join(model_dir, 'corr_pagerank_degree.svg')
+        )
+    pr_pred_test = pr_pred_all[pr_pred_all.index.isin(node_names[test_mask == 1, 1])]
+    pr_pred_test.drop_duplicates(inplace=True)
+
+    # do a random walk with restart and use HotNet2 heat as p_0
+    # read heat json from file
+    heat_df = pd.read_json('../../hotnet2/heat_syn_cnasnv.json').drop('parameters', axis=1)
+    heat_df.dropna(axis=0, inplace=True)
+    # join with node names to get correct order and only genes present in network
+    nn = pd.DataFrame(node_names, columns=['ID', 'Name'])
+    heat_df = nn.merge(heat_df, left_on='Name', right_index=True, how='left')
+    heat_df.fillna(0, inplace=True)
+
+    # add normalized heat
+    heat_df['heat_norm'] = heat_df.heat / heat_df.heat.sum()
+    p_0 = heat_df.heat_norm
+    #p_0 = features.mean(axis=1)
+    beta = 0.3
+    W = network / network.sum(axis=0) # normalize A
+    np.nan_to_num(W, copy=False)
+    #assert (np.allclose(W.sum(axis=0), 1)) # assert that rows/cols sum to 1
+    p = np.linalg.inv(beta * (np.eye(network.shape[0]) - (1 - beta) * W)).dot(np.array(p_0))
+    heat_df['rwr_score'] = p
+    if plot_correlations:
+        compute_degree_correlation(model_dir, heat_df.set_index('Name').rwr_score,
+                                os.path.join(model_dir, 'corr_rwr_degree.svg')
+        )
+
+
+    # use MutSigCV -log10 q-values for evaluation of that method
+    mutsigcv_scores = pd.read_csv('../data/pancancer/mutsigcv/mutsigcv_genescores.csv',
+                                  index_col=0, sep='\t').mean(axis=1)
+    nodes = pd.DataFrame(node_names, columns=['ID', 'Name']).set_index('ID')
+    mutsigcv_scores_filled = mutsigcv_scores.reindex(nodes.Name).fillna(0)
+    if plot_correlations:
+        compute_degree_correlation(model_dir, mutsigcv_scores_filled,
+                                os.path.join(model_dir, 'corr_mutsigcv_degree.svg')
+        )
+    
+    # we have predictions for all tools, make it dataframes to return
+    all_predictions = pd.DataFrame(node_names, columns=['ID', 'Name']).set_index('Name')
+    all_predictions['Random_Forest'] = pred_rf_all[:, 1]
+    predictions_emogi = predictions.set_index('Name').reindex(all_predictions.index)
+    all_predictions['EMOGI'] = predictions_emogi.Prob_pos
+    #all_predictions['Log_Reg'] = pred_lr_all[:, 1]
+    all_predictions['PageRank'] = pr_pred_all.Score
+    all_predictions['RWR'] = p
+    all_predictions['MutSigCV'] = mutsigcv_scores_filled
+    #all_predictions['GAT'] = gat_results[:, 1]
+    all_predictions['DeepWalk'] = pred_deepwalk_all[:, 1]
+
+    if network_measures:
+        all_predictions['Degree'] = node_degree
+        all_predictions['Core'] = nodes_with_core.Core
+        all_predictions['Clustering_Coeff'] = nodes_with_cc.Clustering_Coeff
+        all_predictions['Betweenness'] = nodes_with_bn.Betweenness
+
+    return all_predictions, all_predictions[test_mask.astype(np.bool)]
+
+
 
 def compute_ROC_PR_competitors(model_dir, network_name, network_measures=False, verbose=False):
     """Computes ROC and PR curves and compares to base line methods.
@@ -261,7 +476,7 @@ def compute_ROC_PR_competitors(model_dir, network_name, network_measures=False, 
     curve and according to the PR curve, respectively.
     """
     # first, get the data from the container
-    args, data_file = gcnIO.load_hyper_params(model_dir)
+    _, data_file = gcnIO.load_hyper_params(model_dir)
     if os.path.isdir(data_file): # FIXME: This is hacky and not guaranteed to work at all!
         network_name = None
         for f in os.listdir(data_file):
@@ -274,207 +489,43 @@ def compute_ROC_PR_competitors(model_dir, network_name, network_measures=False, 
     data = gcnIO.load_hdf_data(data_file)
     network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feat_names = data
     features = features.reshape(features.shape[0], -1) # flatten 3D features
-    # read predictions, too
-    predictions = load_predictions(model_dir)
 
-    # prepare the features for easy usage of scikit learn API
-    X_train = features[train_mask.astype(np.bool)]
-    y_train_svm = y_train[train_mask.astype(np.bool)]
-    X_test = features[test_mask.astype(np.bool)]
-    #y_test_svm = y_test[test_mask.astype(np.bool)]
+    # next, get predictions from all tools
+    all_predictions, test_predictions = compute_predictions_competitors(model_dir=model_dir,
+                                                                        network_name=network_name,
+                                                                        network_measures=network_measures,
+                                                                        plot_correlations=False,
+                                                                        verbose=verbose
+    )
 
-    # train random forest on the features only and predict for test set and all genes
-    rf = RandomForestClassifier(n_estimators=100)
-    rf.fit(X_train, y_train_svm.reshape(-1))
-    pred_rf = rf.predict_proba(X_test)
-    if verbose: print ("Number of predicted genes in Test set (RF): {}".format(pred_rf.argmax(axis=1).sum()))
-    pred_rf_all = rf.predict_proba(features)
-    if verbose: print ("RF predicts {} genes in total".format(np.argmax(pred_rf_all, axis=1).sum()))
+    methods = [('EMOGI', 'EMOGI'), ('Random Forest', 'Random_Forest'),
+               ('DeepWalk', 'DeepWalk'), ('Node Degree', 'Degree'),
+               ('Core/K-Shell', 'Core'), ('Clustering Coef.', 'Clustering_Coeff'),
+               ('Betweenness', 'Betweenness'),
+               ('PageRank', 'PageRank'), ('Net. Prop.', 'RWR'),
+               ('MutSigCV', 'MutSigCV')] #, ('Log. Reg.', 'Log_Reg')]
 
-    # compute performance for network measures
-    if network_measures:
-        G = nx.from_pandas_adjacency(pd.DataFrame(network, index=node_names[:, 1],
-                                                columns=node_names[:, 1]))
-        G.remove_edges_from(nx.selfloop_edges(G))
-        G = max(nx.connected_component_subgraphs(G), key=len)
-        nodes = pd.DataFrame(node_names, columns=['ID', 'Name']).set_index('Name')
-        nd_baseline = network.sum(axis=0)[test_mask.astype(np.bool)]
-        cores = nx.algorithms.core_number(G)
-        nodes_with_core = nodes.join(pd.Series(cores).to_frame(name="Core"))
-        core_baseline = nodes_with_core[test_mask.astype(np.bool)].Core
-        core_baseline.loc[core_baseline.isnull()] = 0
-        cluster_coeff = nx.algorithms.cluster.clustering(G)
-        nodes_with_cc = nodes.join(pd.Series(cluster_coeff).to_frame(name="Clustering_Coeff"))
-        cc_baseline = nodes_with_cc[test_mask.astype(np.bool)].Clustering_Coeff
-        cc_baseline.loc[cc_baseline.isnull()] = 0
-        betweenness = nx.algorithms.centrality.approximate_current_flow_betweenness_centrality(G)
-        nodes_with_bn = nodes.join(pd.Series(betweenness).to_frame(name="Betweenness"))
-        bn_baseline = nodes_with_bn[test_mask.astype(np.bool)].Betweenness
-        bn_baseline.loc[bn_baseline.isnull()] = 0
-        tr_idx = np.logical_or(y_train.reshape(-1), y_val.reshape(-1))
-        c_idx = np.logical_or(tr_idx, y_test.reshape(-1))
-        cancer_genes = node_names[c_idx, 1]
-        cancer_gene_neighbors = {}
-        for node in G.nodes():
-            def _get_num_cancer_genes(n):
-                num_c_neighbors = len([i for i in G.neighbors(n) if i in cancer_genes])
-                num_neighbors =  len([i for i in G.neighbors(n)])
-                return num_c_neighbors / float(num_neighbors)
-            cancer_gene_neighbors[node] = _get_num_cancer_genes(node)
-        nodes['Cancer_Neighbors'] = nodes.index.map(cancer_gene_neighbors)
-        cn_baseline = nodes[test_mask.astype(np.bool)].Cancer_Neighbors
-        cn_baseline.loc[cn_baseline.isnull()] = 0
-
-    # train logistic regression on the features only and predict for test set and all genes
-    logreg = LogisticRegression(class_weight='balanced', solver='lbfgs')
-    logreg.fit(X_train, y_train_svm.reshape(-1))
-    pred_lr = logreg.predict_proba(X_test)
-    if verbose: print ("Number of predicted genes in Test set (LogReg): {}".format(pred_lr.argmax(axis=1).sum()))
-    pred_lr_all = logreg.predict_proba(features)
-    if verbose: print ("LogReg predicts {} genes in total".format(np.argmax(pred_lr_all, axis=1).sum()))
-
-    # train SVM on deepWalk embeddings
-    fname_dw = '../data/pancancer/deepWalk_results/{}_embedding_CPDBparams.embedding'.format(network_name.upper())
-    deepwalk_embeddings = pd.read_csv(fname_dw, header=None, skiprows=1, sep=' ')
-    deepwalk_embeddings.columns = ['Node_Id'] + deepwalk_embeddings.columns[1:].tolist()
-    deepwalk_embeddings.set_index('Node_Id', inplace=True)
-    n_df = pd.DataFrame(node_names, columns=['ID', 'Name'])
-    embedding_with_names = deepwalk_embeddings.join(n_df)
-    X_dw = embedding_with_names.set_index('Name').reindex(n_df.Name).drop('ID', axis=1)
-    X_train_dw = X_dw[train_mask.astype(np.bool)]
-    X_test_dw = X_dw[test_mask.astype(np.bool)]
-    clf_dw = SVC(kernel='rbf', class_weight='balanced', probability=True, gamma='auto')
-    clf_dw.fit(X_train_dw, y_train_svm.reshape(-1))
-    pred_deepwalk = clf_dw.predict_proba(X_test_dw)
-
-    # load results from graph attention networks (GAT)
-    if network_name.upper() == 'CPDB':
-        gat_results = np.load('../data/pancancer/gat_results/results_GAT_CPDB.npy')
-    elif network_name.upper() == 'IREF':
-        gat_results = np.load('../data/pancancer/gat_results/results_GAT_IREF.npy')
-    elif network_name.upper() == 'MULTINET':
-        gat_results = np.load('../data/pancancer/gat_results/results_GAT_MULTINET.npy')
-    elif network_name.upper() == 'STRING':
-        gat_results = np.load('../data/pancancer/gat_results/results_GAT_STRING.npy')
-    elif network_name.upper() == 'IREFNEW':
-        gat_results = np.load('../data/pancancer/gat_results/results_GAT_IREFNEW.npy')
-    elif network_name.upper() == 'PCNET':
-        gat_results = np.load('../data/pancancer/gat_results/results_GAT_PCNET.npy')
-    else:
-        gat_results = None
-        print ("Network {} not recognized for GAT performance.".format(network_name))
-    if not gat_results is None:
-        gat_results = gat_results.reshape(gat_results.shape[1], gat_results.shape[2])
-        gat_results_test = gat_results[test_mask == 1, :]
-
-    # train pagerank on the network
-    scores, names = pagerank.pagerank(network, node_names)
-    pr_df = pd.DataFrame(scores, columns=['Number', 'Score']) # get the results in same order as our data
-    names = pd.DataFrame(names, columns=['ID', 'Name'])
-    pr_pred_all = pr_df.join(names, on='Number', how='inner')
-    pr_pred_all.drop_duplicates(subset='Name', inplace=True)
-    node_names_df = pd.DataFrame(node_names, columns=['ID', 'Name']).set_index('ID')
-    pr_pred_all = pr_pred_all.set_index('Name').reindex(node_names_df.Name)
-    pr_pred_test = pr_pred_all[pr_pred_all.index.isin(node_names[test_mask == 1, 1])]
-    pr_pred_test.drop_duplicates(inplace=True)
-
-    # do a random walk with restart and use HotNet2 heat as p_0
-    # read heat json from file
-    heat_df = pd.read_json('../../hotnet2/heat_syn_cnasnv.json').drop('parameters', axis=1)
-    heat_df.dropna(axis=0, inplace=True)
-
-    # join with node names to get correct order and only genes present in network
-    nn = pd.DataFrame(node_names, columns=['ID', 'Name'])
-    heat_df = nn.merge(heat_df, left_on='Name', right_index=True, how='left')
-    heat_df.fillna(0, inplace=True)
-
-    # add normalized heat
-    heat_df['heat_norm'] = heat_df.heat / heat_df.heat.sum()
-    p_0 = heat_df.heat_norm
-    #p_0 = features.mean(axis=1)
-    beta = 0.3
-    W = network / network.sum(axis=0) # normalize A
-    np.nan_to_num(W, copy=False)
-    print (W.sum(axis=0).max(), W.sum(axis=0).min())
-    #assert (np.allclose(W.sum(axis=0), 1)) # assert that rows/cols sum to 1
-    p = np.linalg.inv(beta * (np.eye(network.shape[0]) - (1 - beta) * W)).dot(np.array(p_0))
-    heat_df['rwr_score'] = p
-    rwr_pred_test = heat_df[test_mask == 1].rwr_score
-
-    # use MutSigCV -log10 q-values for evaluation of that method
-    mutsigcv_scores = pd.read_csv('../data/pancancer/mutsigcv/mutsigcv_genescores.csv',
-                                  index_col=0, sep='\t').mean(axis=1)
-    nodes = pd.DataFrame(node_names, columns=['ID', 'Name']).set_index('ID')
-    mutsigcv_scores_filled = mutsigcv_scores.reindex(nodes.Name).fillna(0)
-    mutsigcv_pred_test = mutsigcv_scores_filled[mutsigcv_scores_filled.index.isin(nodes[test_mask].Name)]
-
-    # finally, do the actual plotting
+    # compute ROC values
     linewidth = 4
     labelfontsize = 20
     ticksize = 17
     y_true = y_test[test_mask == 1, 0]
-    pred_testset_gcn = predictions[predictions.Name.isin(node_names[test_mask, 1])]
-    y_true_gcn = pred_testset_gcn.label
-    y_score = pred_testset_gcn.Prob_pos
-    fpr, tpr, thresholds = roc_curve(y_true=y_true_gcn, y_score=y_score)
-    roc_auc = roc_auc_score(y_true=y_true_gcn, y_score=y_score)
-    # compute roc for random forest
-    fpr_rf, tpr_rf, thresholds_rf = roc_curve(y_true=y_true, y_score=pred_rf[:, 1])
-    roc_auc_rf = roc_auc_score(y_true=y_true, y_score=pred_rf[:, 1])
 
-    if network_measures:
-        # compute ROC for node degree baseline
-        fpr_nd, tpr_nd, thresholds_nd = roc_curve(y_true=y_true, y_score=nd_baseline)
-        roc_auc_nd = roc_auc_score(y_true=y_true, y_score=nd_baseline)
-        # compute ROC for core baseline
-        fpr_core, tpr_core, thresholds_core = roc_curve(y_true=y_true, y_score=core_baseline)
-        roc_auc_core = roc_auc_score(y_true=y_true, y_score=nd_baseline)
-        # compute ROC for clustering coefficient baseline
-        fpr_cc, tpr_cc, thresholds_cc = roc_curve(y_true=y_true, y_score=cc_baseline)
-        roc_auc_cc = roc_auc_score(y_true=y_true, y_score=cc_baseline)
-        # compute ROC for betweenness centrality baseline
-        fpr_bn, tpr_bn, thresholds_bn = roc_curve(y_true=y_true, y_score=bn_baseline)
-        roc_auc_bn = roc_auc_score(y_true=y_true, y_score=bn_baseline)
-        # compute ROC for cancer neighbor baseline
-        fpr_cn, tpr_cn, thresholds_cn = roc_curve(y_true=y_true, y_score=cn_baseline)
-        roc_auc_cn = roc_auc_score(y_true=y_true, y_score=cn_baseline)
-    # compute ROC for Logistic Regression
-    fpr_lr, tpr_lr, thresholds_lr = roc_curve(y_true=y_true, y_score=pred_lr[:, 1])
-    roc_auc_lr = roc_auc_score(y_true=y_true, y_score=pred_lr[:, 1])
-    # compute ROC for SVM on deepWalk embeddings
-    fpr_dw, tpr_dw, thresholds_dw = roc_curve(y_true=y_true, y_score=pred_deepwalk[:, 1])
-    roc_auc_dw = roc_auc_score(y_true=y_true, y_score=pred_deepwalk[:, 1])
-    # compute ROC for GAT
-    if not gat_results is None:
-        fpr_gat, tpr_gat, thresholds_gat = roc_curve(y_true=y_true, y_score=gat_results_test[:, 1])
-        roc_auc_gat = roc_auc_score(y_true=y_true, y_score=gat_results_test[:, 1])
-    # compute ROC for PageRank
-    fpr_pr, tpr_pr, thresholds_pr = roc_curve(y_true=y_true, y_score=pr_pred_test.Score)
-    roc_auc_pr = roc_auc_score(y_true=y_true, y_score=pr_pred_test.Score)
-    # compute ROC for RWR with HotNet2 heat scores
-    fpr_hotnet, tpr_hotnet, thresholds_hotnet = roc_curve(y_true=y_true, y_score=rwr_pred_test)
-    roc_auc_hotnet = roc_auc_score(y_true=y_true, y_score=rwr_pred_test)
-    # compute ROC for MutSigCV q-values
-    fpr_ms, tpr_ms, thresholds_ms = roc_curve(y_true=y_true, y_score=mutsigcv_pred_test)
-    roc_auc_ms = roc_auc_score(y_true=y_true, y_score=mutsigcv_pred_test)
-
+    roc_results_testset = []
+    for name, colname in methods:
+        fpr, tpr, thresholds = roc_curve(y_true=y_true, y_score=test_predictions[colname])
+        roc_auc = roc_auc_score(y_true=y_true, y_score=test_predictions[colname])
+        roc_results_testset.append((name, roc_auc, fpr, tpr, thresholds))
+    
     # plot ROC curve
     fig = plt.figure(figsize=(14, 8))
-    plt.plot(fpr, tpr, lw=linewidth, label='GCN (AUC = {0:.2f})'.format(roc_auc))
-    plt.plot(fpr_rf, tpr_rf, lw=linewidth, label='Rand. Forest (AUC = {0:.2f})'.format(roc_auc_rf))
-    #plt.plot(fpr_lr, tpr_lr, lw=linewidth, label='LogReg (AUC = {0:.2f})'.format(roc_auc_lr))
-    if network_measures:
-        plt.plot(fpr_nd, tpr_nd, lw=linewidth, label='Node Degree (AUC = {0:.2f})'.format(roc_auc_nd))
-        plt.plot(fpr_core, tpr_core, lw=linewidth, label='Core Number (AUC = {0:.2f})'.format(roc_auc_core))
-        plt.plot(fpr_cc, tpr_cc, lw=linewidth, label='Clustering (AUC = {0:.2f})'.format(roc_auc_cc))
-        plt.plot(fpr_bn, tpr_bn, lw=linewidth, label='Betweenness (AUC = {0:.2f})'.format(roc_auc_bn))
-        plt.plot(fpr_cn, tpr_cn, lw=linewidth, label='# Pos. Neighbors (AUC = {0:.2f})'.format(roc_auc_cn))
-    plt.plot(fpr_dw, tpr_dw, lw=linewidth, label='DeepWalk (AUC = {0:.2f})'.format(roc_auc_dw))
-    if not gat_results is None:
-        plt.plot(fpr_gat, tpr_gat, lw=linewidth, label='GAT (AUC = {0:.2f})'.format(roc_auc_gat))
-    plt.plot(fpr_pr, tpr_pr, lw=linewidth, label='PageRank (AUC = {0:.2f})'.format(roc_auc_pr))
-    plt.plot(fpr_hotnet, tpr_hotnet, lw=linewidth, label='RWR (AUC = {0:.2f})'.format(roc_auc_hotnet))
-    plt.plot(fpr_ms[:-1], tpr_ms[:-1], lw=linewidth, label='MutSigCV'.format(roc_auc_ms))
+    for name, auc, fpr, tpr, thr in roc_results_testset:
+        if name == 'MutSigCV': # we can not plot AUC for MutSigCV
+            plt.plot(fpr[:-1], tpr[:-1], lw=linewidth, label='{0}'.format(name))
+        else:
+            plt.plot(fpr, tpr, lw=linewidth, label='{0} (AUC = {1:.2f})'.format(name, auc))
+
+    # make the plot nice
     plt.plot([0, 1], [0, 1], color='gray', lw=linewidth, linestyle='--', label='Random')
     plt.xlabel('False Positive Rate', fontsize=labelfontsize)
     plt.ylabel('True Positive Rate', fontsize=labelfontsize)
@@ -484,74 +535,26 @@ def compute_ROC_PR_competitors(model_dir, network_name, network_measures=False, 
     plt.close(fig=fig)
 
     # compute the optimal cutoff according to ROC curve (point on the curve closest to (0, 1))
+    _, _, fpr, tpr, thresholds = roc_results_testset[0] # EMOGI performance
     distances = np.sqrt(np.sum((np.array([0, 1]) - np.array([fpr, tpr]).T)**2, axis=1))
     idx = np.argmin(distances)
     best_threshold_roc = thresholds[idx]
 
-    linewidth = 4
-    labelfontsize = 20
-    ticksize = 17
-    # calculate precision and recall for GCN
-    pr, rec, thresholds = precision_recall_curve(y_true=y_true_gcn, probas_pred=y_score)
-    aupr = average_precision_score(y_true=y_true_gcn, y_score=y_score)
-    # calculate precision and recall for RF
-    pr_rf, rec_rf, thresholds_rf = precision_recall_curve(y_true=y_true, probas_pred=pred_rf[:, 1])
-    aupr_rf = average_precision_score(y_true=y_true, y_score=pred_rf[:, 1])
+    pr_results_testset = []
+    for name, colname in methods:
+        pr, rec, thresholds = precision_recall_curve(y_true=y_true, probas_pred=test_predictions[colname])
+        aupr = average_precision_score(y_true=y_true, y_score=test_predictions[colname])
+        pr_results_testset.append((name, aupr, pr, rec, thresholds))
 
-    if network_measures:
-        # calculate precision and recall for node degree
-        pr_nd, rec_nd, thresholds_nd = precision_recall_curve(y_true=y_true, probas_pred=nd_baseline)
-        aupr_nd = average_precision_score(y_true=y_true, y_score=nd_baseline)
-        # calculate precision and recall for core number
-        pr_core, rec_core, thresholds_core = precision_recall_curve(y_true=y_true, probas_pred=core_baseline)
-        aupr_core = average_precision_score(y_true=y_true, y_score=core_baseline)
-        # calculate precision and recall for clustering coefficient
-        pr_cc, rec_cc, thresholds_cc = precision_recall_curve(y_true=y_true, probas_pred=cc_baseline)
-        aupr_cc = average_precision_score(y_true=y_true, y_score=cc_baseline)
-        # calculate precision and recall for betweenness centrality
-        pr_bn, rec_bn, thresholds_bn = precision_recall_curve(y_true=y_true, probas_pred=bn_baseline)
-        aupr_bn = average_precision_score(y_true=y_true, y_score=bn_baseline)
-        # calculate precision and recall for betweenness centrality
-        pr_cn, rec_cn, thresholds_cn = precision_recall_curve(y_true=y_true, probas_pred=cn_baseline)
-        aupr_cn = average_precision_score(y_true=y_true, y_score=cn_baseline)
-    # calculate precision and recall for Logistic Regression
-    pr_lr, rec_lr, thresholds_lr = precision_recall_curve(y_true=y_true, probas_pred=pred_lr[:, 1])
-    aupr_lr = average_precision_score(y_true=y_true, y_score=pred_lr[:, 1])
-    # calculate precision and recall for SVM on deepWalk embeddings
-    pr_dw, rec_dw, thresholds_dw = precision_recall_curve(y_true=y_true, probas_pred=pred_deepwalk[:, 1])
-    aupr_dw = average_precision_score(y_true=y_true, y_score=pred_deepwalk[:, 1])
-    # calculate precision and recall for GAT
-    if not gat_results is None:
-        pr_gat, rec_gat, thresholds_gat = precision_recall_curve(y_true=y_true,
-                                                                 probas_pred=gat_results_test[:, 1])
-        aupr_gat = average_precision_score(y_true=y_true, y_score=gat_results_test[:, 1])
-    # calculate precision and recall for PageRank
-    pr_pr, rec_pr, thresholds_pr = precision_recall_curve(y_true=y_true, probas_pred=pr_pred_test.Score)
-    aupr_pr = average_precision_score(y_true=y_true, y_score=pr_pred_test.Score)
-    # calculate precision and recall for Hotnet2
-    pr_hotnet, rec_hotnet, thresholds_hotnet = precision_recall_curve(y_true=y_true, probas_pred=rwr_pred_test)
-    aupr_hotnet = average_precision_score(y_true=y_true, y_score=rwr_pred_test)
-    # compute precision and recall for MutSigCV q-values
-    pr_ms, rec_ms, thresholds_ms = precision_recall_curve(y_true=y_true, probas_pred=mutsigcv_pred_test)
-    aupr_ms = average_precision_score(y_true=y_true, y_score=mutsigcv_pred_test)
-
+    # plot PR curve
     fig = plt.figure(figsize=(14, 8))
-    plt.plot(rec, pr, lw=linewidth, label='GCN (AUPR = {0:.2f})'.format(aupr))
-    #plt.plot(rec_svm, pr_svm, lw=linewidth, label='SVM (AUPR = {0:.2f})'.format(aupr_svm))
-    plt.plot(rec_rf, pr_rf, lw=linewidth, label='Rand. Forest (AUPR = {0:.2f})'.format(aupr_rf))
-    #plt.plot(rec_lr, pr_lr, lw=linewidth, label='LogReg (AUPR = {0:.2f})'.format(aupr_lr))
-    if network_measures:
-        plt.plot(rec_nd, pr_nd, lw=linewidth, label='Node Degree (AUPR = {0:.2f})'.format(aupr_nd))
-        plt.plot(rec_core, pr_core, lw=linewidth, label='Core Number (AUPR = {0:.2f})'.format(aupr_core))
-        plt.plot(rec_cc, pr_cc, lw=linewidth, label='Clustering (AUPR = {0:.2f})'.format(aupr_cc))
-        plt.plot(rec_bn, pr_bn, lw=linewidth, label='Betweenness (AUPR = {0:.2f})'.format(aupr_bn))
-        plt.plot(rec_cn, pr_cn, lw=linewidth, label='# Pos. Neighbors (AUPR = {0:.2f})'.format(aupr_cn))
-    plt.plot(rec_dw, pr_dw, lw=linewidth, label='DeepWalk (AUPR = {0:.2f})'.format(aupr_dw))
-    if not gat_results is None:
-        plt.plot(rec_gat, pr_gat, lw=linewidth, label='GAT (AUPR = {0:.2f})'.format(aupr_gat))
-    plt.plot(rec_pr, pr_pr, lw=linewidth, label='PageRank (AUPR = {0:.2f})'.format(aupr_pr))
-    plt.plot(rec_hotnet, pr_hotnet, lw=linewidth, label='HotNet2 (AUPR = {0:.2f})'.format(aupr_hotnet))
-    plt.plot(rec_ms[1:], pr_ms[1:], lw=linewidth, label='MutSigCV')
+    for name, auc, pr, rec, thr in pr_results_testset:
+        if name == 'MutSigCV': # we can not plot AUC for MutSigCV
+            plt.plot(rec[1:], pr[1:], lw=linewidth, label='{0}'.format(name))
+        else:
+            plt.plot(rec, pr, lw=linewidth, label='{0} (AUC = {1:.2f})'.format(name, auc))
+    
+    # make the plot nice
     random_y = y_true.sum() / (y_true.sum() + y_true.shape[0] - y_true.sum())
     plt.plot([0, 1], [random_y, random_y], color='gray', lw=3, linestyle='--', label='Random')
     plt.xlabel('Recall', fontsize=20)
@@ -560,9 +563,10 @@ def compute_ROC_PR_competitors(model_dir, network_name, network_measures=False, 
     #plt.title('Precision-Recall Curve')
     plt.legend(prop={'size': 18})
     fig.savefig(os.path.join(model_dir, 'prec_recall.svg'))
-    fig.savefig(os.path.join(model_dir, 'prec_recall.png'), dpi=300)
     plt.close(fig=fig)
+
     # compute the optimal cutoff according to PR curve (point closest to (1,1))
+    _, _, pr, rec, thresholds = pr_results_testset[0] # EMOGI performance 
     distances = np.sqrt(np.sum((np.array([1, 1]) - np.array([rec, pr]).T)**2, axis=1))
     idx = np.argmin(distances)
     best_threshold_pr = thresholds[idx]
@@ -665,57 +669,49 @@ def compute_overlap(model_dir, fname_out, set1, set2, threshold=0.5, names=['Set
     fig.savefig(os.path.join(model_dir, fname_out))
 
 
-def compute_node_degree_relation(model_dir):
-    """Plot the relationship between node degree and GCN predictions.
+def compute_degree_correlation(model_dir, predictions, out_file):
+    """Plot correlation between node degree and predictions from a tool.
 
-    This function does a contour plot for each gene with its degree
-    (number of neighbors in interaction network) on the y-axis
-    and its probability to be a disease gene according to the GCN
-    on the x-axis. To see correlation from data on different scales,
-    I use the rank instead of the direct values for plotting.
-    This function returns the correlation coefficient between
-    the two metrics for all genes (also ranked).
+    this function produces a contour plot of ranked node degree (# of
+    interaction partners for a gene) and ranked output probability of
+    the tool. Missing points will be discarded.
 
     Parameters:
     ----------
     model_dir:                  The output directory of the GCN training
-
+    predictions:                Scores from the tool that produce a ranking
+                                Doesn't have to be probabilities.
+                                The scores have to be a pandas series with
+                                the index being the hugo gene symbols.
+    out_file:                   The output filename to write the plot to.
+    
     Returns:
-    The correlation coefficient between node degree and probability to be a
-    disease gene.
+    The pearson correlation coefficient between the node degree and the output
+    probability of the tool.
     """
-    # get the data from hdf5 container
     args, data_file = gcnIO.load_hyper_params(model_dir)
-    if os.path.isdir(data_file): # FIXME: This is hacky and not guaranteed to work at all!
-        network_name = None
-        for f in os.listdir(data_file):
-            if network_name is None:
-                network_name = f.split('_')[0].upper()
-            else:
-                assert (f.split('_')[0].upper() == network_name)
-        fname = '{}_{}.h5'.format(network_name, model_dir.strip('/').split('/')[-1])
-        data_file = os.path.join(data_file, fname)
     data = gcnIO.load_hdf_data(data_file)
     network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feat_names = data
-    predictions = load_predictions(model_dir)
+    node_degree = pd.DataFrame(network.sum(axis=1), index=node_names[:, 1], columns=['Degree'])
+    p = predictions.reindex(node_degree.index).dropna()
+    plot_correlation(series_1=p.rank(),
+                     series_2=node_degree.loc[p.index, 'Degree'].rank(),
+                     xlabel='Score (Ranked)',
+                     ylabel='Degree (Ranked)',
+                     title='Pearson Correlation (R={0:.2f})'.format(p.rank().corr(node_degree.Degree.rank())),
+                     out_path=out_file
+    )
 
-    node_degree = pd.DataFrame(network.sum(axis=1), index=node_names[:, 0], columns=['Degree'])
-    pred_with_degree = node_degree.join(predictions, how='inner', lsuffix='_')
-    pred_with_degree['Degree_Rank'] = pred_with_degree.Degree.rank()
-    pred_with_degree['Prob_Rank'] = pred_with_degree.Prob_pos.rank()
 
-    fig = plt.figure(figsize=(14, 8))
-    sns.kdeplot(pred_with_degree.Prob_Rank, pred_with_degree.Degree_Rank, cmap='Reds',
-                shade=True, shade_lowest=False)
-    plt.xlabel('GCN Probability (Ranked)', fontsize=20)
-    plt.ylabel('Node Degree (Ranked)', fontsize=20)
-    s = 'Correlation between Node Degree vs. GCN Predictions (R={0:.2f})'
-    correlation_coeff = pred_with_degree.Degree_Rank.corr(pred_with_degree.Prob_Rank)
-    plt.title(s.format(correlation_coeff), fontsize=20)
+def plot_correlation(series_1, series_2, xlabel, ylabel, out_path, title=None):
+    fig = plt.figure(figsize=(8, 8))
+    sns.kdeplot(series_1, series_2, cmap='Reds', shade=True, shade_lowest=False)
+    plt.xlabel(xlabel, fontsize=20)
+    plt.ylabel(ylabel, fontsize=20)
+    plt.title(title, fontsize=20)
     plt.tick_params(axis='both', labelsize=17)
-    fig.savefig(os.path.join(model_dir, 'degree_correlation.svg'))
-
-    return pred_with_degree.Prob_Rank.corr(pred_with_degree.Degree_Rank)
+    fig.tight_layout()
+    fig.savefig(out_path)
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Post-process a GCN training by plotting various performance metrics.')
@@ -744,7 +740,8 @@ def postprocessing(model_dir, network_name, include_network_measures=False):
     """Run all plotting functions.
     """
     all_preds, all_sets = compute_ensemble_predictions(model_dir)
-    compute_node_degree_relation(model_dir)
+    pred = load_predictions(model_dir).set_index('Name')['Prob_pos']
+    compute_degree_correlation(model_dir, pred, os.path.join(model_dir, 'corr_emogi_degree.svg'))
     compute_average_ROC_curve(model_dir, all_preds, all_sets)
     compute_average_PR_curve(model_dir, all_preds, all_sets)
     best_thr_roc, best_thr_pr = compute_ROC_PR_competitors(model_dir, network_name,
