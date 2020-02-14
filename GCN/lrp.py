@@ -382,8 +382,14 @@ class LRP:
                                                  ys=mask_gene
                     )
                     feature_contribution[idx_g, :] = attributions[0][idx_g, :]
+                    # add neighbor contributions for all support matrices
                     for support in range(len(neighbor_contribution)):
-                        neighbor_contribution[support] += attributions[support+1]
+                        # divide by total (neighbor) contribution to make
+                        # every gene contribute the same total numbers
+                        total_neighbor_contrib = np.abs(attributions[support+1].sum().sum())
+                        if total_neighbor_contrib > 0.01:
+                            #print (total_neighbor_contrib, (attributions[support+1] / total_neighbor_contrib).sum().sum())
+                            neighbor_contribution[support] += (attributions[support+1] / total_neighbor_contrib)
                     if idx_g > 0 and idx_g % 500 == 0:
                         print ("Computed LRP for {} genes so far".format(idx_g))
         tf.reset_default_graph()
@@ -516,10 +522,10 @@ class LRP:
 
         # save matrices in numpy format
         def save_to_disk():
-            np.save(os.path.join(self.out_dir, "feat_mean_all_slow.npy"), feat_mean_all)
-            np.save(os.path.join(self.out_dir, "feat_std_all_slow.npy"), feat_std_all)
+            np.save(os.path.join(self.out_dir, "feat_mean_all_new.npy"), feat_mean_all)
+            np.save(os.path.join(self.out_dir, "feat_std_all_new.npy"), feat_std_all)
             for idx, mat in enumerate(support_mean_sum):
-                np.save(os.path.join(self.out_dir, "support_{}_mean_sum_slow.npy".format(idx)), mat)
+                np.save(os.path.join(self.out_dir, "support_{}_mean_sum_normed.npy".format(idx)), mat)
 
         # run LRP for every gene and save results into aforementioned matrices
         for idx_g, gene_name in enumerate(self.node_names):
