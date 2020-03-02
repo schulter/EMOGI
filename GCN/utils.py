@@ -49,7 +49,7 @@ def lrp_heatmap_plot(fig, outer_grid, x, xlabels, title=None):
         x = x.reshape(16, 3, order='F')
     inner = gridspec.GridSpecFromSubplotSpec(3, 1, hspace=0, subplot_spec=outer_grid)
     omics = ['Mutation', 'Methylation', 'Expression']
-    cmaps = [sns.color_palette("Reds"), sns.color_palette("Blues"), sns.color_palette("Greens")]
+    cmaps = [sns.color_palette("Reds", n_colors=50), sns.color_palette("Blues", n_colors=50), sns.color_palette("Greens", n_colors=50)]
     vmax = x.max()
     vmin = x.min()
     for c in range(3):
@@ -73,10 +73,8 @@ def lrp_heatmap_plot(fig, outer_grid, x, xlabels, title=None):
 
 
 def lrp_barplot(fig, outer_grid, x, xlabels, std=None, y_name=None, title=None):
-    print (x.shape)
     ax = plt.Subplot(fig, outer_grid)
     ax.bar(np.arange(len(xlabels)), x, yerr=std, tick_label=xlabels)
-    print ("not failed till here")
     if not title is None:
         ax.set_title(title)
     if not y_name is None:
