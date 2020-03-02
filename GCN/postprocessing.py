@@ -34,7 +34,56 @@ np.set_printoptions(suppress=True)
 pd.set_option('display.float_format', lambda x: '%.3f' % x)
 
 
-def compute_ensemble_predictions(model_dir):
+def get_all_cancer_gene_sets(ncg_path, oncoKB_path, baileyetal_path, ongene_path):
+    """Return all cancer gene sets that we use.
+
+    This function loads and returns all cancer gene sets we use. It can be used
+    to enrich tables with prediction outcomes and to compute overlap of cancer
+    gene sets.
+
+    Parameters:
+    ----------
+    ncg_path:                   The location of the NCG genes
+                                (includes known and candidate cancer genes)
+    oncoKB_path:                The location of the downloaded OncoKB cancer
+                                gene database
+    baileyetal_path:            The location of the cancer genes computationally
+                                derived by Bailey et al.
+    ongene_path:                The location of the ONGene cancer gene database
+
+    Returns:
+    A list of lists containing the different cancer gene sets in the order:
+    NCG known cancer genes (COSMIC CGC is part of that). NCG candidate cancer genes,
+    oncoKB high confidence genes, Bailey et al. cancer genes and the oncogenes from
+    ONGene.
+    """
+    # get the NCG cancer genes
+    known_cancer_genes = []
+    candidate_cancer_genes = []
+    n = 0
+    with open(ncg_path, 'r') as f:
+        for line in f.readlines():
+            n += 1
+            if n == 1:
+                continue
+            l = line.strip().split('\t')
+            if len(l) == 2:
+                known_cancer_genes.append(l[0])
+                candidate_cancer_genes.append(l[1])
+            else:
+                candidate_cancer_genes.append(l[0])
+    # OncoKB
+    oncokb_genes = pd.read_csv(oncoKB_path, sep='\t')
+    oncokb_highconf = oncokb_genes[oncokb_genes['# of occurrence within resources (Column D-J)'] >= 3]['Hugo Symbol']
+    # comprehensive characterization paper genes
+    cancer_genes_paper = pd.read_csv(baileyetal_path, sep='\t', header=3)
+    cancer_genes_paper = pd.Series(cancer_genes_paper.Gene.unique())
+    # OnGene
+    oncogenes = pd.read_csv(ongene_path, sep='\t').OncogeneName
+    return known_cancer_genes, candidate_cancer_genes, oncokb_highconf, cancer_genes_paper, oncogenes
+
+
+def compute_ensemble_predictions(model_dir, comprehensive=False):
     """Computes the mean prediction from cross validation runs.
 
     This function summarizes the predictions of a GCN between different cross
@@ -85,6 +134,23 @@ def compute_ensemble_predictions(model_dir):
     ensemble_predictions['Num_Pos'] = (ensemble_predictions[number_cols] > 0.5).sum(axis=1)
     ensemble_predictions['Mean_Pred'] = ensemble_predictions[number_cols].mean(axis=1)
     ensemble_predictions['Std_Pred'] = ensemble_predictions[number_cols].std(axis=1)
+
+    if comprehensive: # enrich with database knowledge on cancer gene sets
+        cancer_gene_sets = get_all_cancer_gene_sets(ncg_path='../data/pancancer/NCG/cancergenes_list.txt',
+                                                    oncoKB_path='../data/pancancer/oncoKB/cancerGeneList.txt',
+                                                    baileyetal_path='../data/pancancer/comprehensive_characterization_of_cancer_driver_genes_and_mutations/comprehensive_characterization_cancer_genes.csv',
+                                                    ongene_path='../data/pancancer/ongene_tsgene/Human_Oncogenes.txt')
+        ncg_knowns = cancer_gene_sets[0]
+        ncg_candidates = cancer_gene_sets[1]
+        oncoKB_genes = cancer_gene_sets[2]
+        baileyetal = cancer_gene_sets[3]
+        oncogenes = cancer_gene_sets[4]
+        ensemble_predictions['NCG_Known_Cancer_Gene'] = ensemble_predictions.Name.isin(ncg_knowns)
+        ensemble_predictions['NCG_Candidate_Cancer_Gene'] = ensemble_predictions.Name.isin(ncg_candidates)
+        ensemble_predictions['OncoKB_Cancer_Gene'] = ensemble_predictions.Name.isin(oncoKB_genes)
+        ensemble_predictions['Bailey_et_al_Cancer_Gene'] = ensemble_predictions.Name.isin(baileyetal)
+        ensemble_predictions['ONGene_Oncogene'] = ensemble_predictions.Name.isin(oncogenes)
+
     # write to file
     predictions = ensemble_predictions.sort_values(by='Mean_Pred', ascending=False)
     predictions.to_csv(os.path.join(model_dir, 'ensemble_predictions.tsv'), sep='\t')
@@ -498,12 +564,17 @@ def compute_ROC_PR_competitors(model_dir, network_name, network_measures=False, 
                                                                         verbose=verbose
     )
 
-    methods = [('EMOGI', 'EMOGI'), ('Random Forest', 'Random_Forest'),
-               ('DeepWalk', 'DeepWalk'), ('Node Degree', 'Degree'),
-               ('Core/K-Shell', 'Core'), ('Clustering Coef.', 'Clustering_Coeff'),
-               ('Betweenness', 'Betweenness'),
-               ('PageRank', 'PageRank'), ('Net. Prop.', 'RWR'),
-               ('MutSigCV', 'MutSigCV')] #, ('Log. Reg.', 'Log_Reg')]
+    if network_measures:
+        methods = [('EMOGI', 'EMOGI'), ('Random Forest', 'Random_Forest'),
+                   ('DeepWalk', 'DeepWalk'), ('Node Degree', 'Degree'),
+                   ('Core/K-Shell', 'Core'), ('Clustering Coef.', 'Clustering_Coeff'),
+                   ('Betweenness', 'Betweenness'),
+                   ('PageRank', 'PageRank'), ('Net. Prop.', 'RWR'),
+                   ('MutSigCV', 'MutSigCV')] #, ('Log. Reg.', 'Log_Reg')]
+    else:
+        methods = [('EMOGI', 'EMOGI'), ('Random Forest', 'Random_Forest'),
+                   ('DeepWalk', 'DeepWalk'), ('PageRank', 'PageRank'),
+                   ('Net. Prop.', 'RWR'), ('MutSigCV', 'MutSigCV')]
 
     # compute ROC values
     linewidth = 4
@@ -614,7 +685,7 @@ def load_predictions(model_dir):
     pred_ordered = predictions[~predictions.index.duplicated()]
     pred_ordered.reindex(index=nodes.index)
     predictions.drop([c for c in predictions.columns if c.startswith('Prob_pos')], axis=1, inplace=True)
-    predictions.columns = ['Name', 'label', 'Num_Pos', 'Prob_pos', 'Std_Pred']
+    predictions.columns = [i if not i == 'Mean_Pred' else 'Prob_pos' for i in predictions.columns]
     return predictions
 
 def compute_overlap(model_dir, fname_out, set1, set2, threshold=0.5, names=['Set1', 'Set2']):
@@ -739,7 +810,7 @@ def parse_args():
 def postprocessing(model_dir, network_name, include_network_measures=False):
     """Run all plotting functions.
     """
-    all_preds, all_sets = compute_ensemble_predictions(model_dir)
+    all_preds, all_sets = compute_ensemble_predictions(model_dir, comprehensive=True)
     pred = load_predictions(model_dir).set_index('Name')['Prob_pos']
     compute_degree_correlation(model_dir, pred, os.path.join(model_dir, 'corr_emogi_degree.svg'))
     compute_average_ROC_curve(model_dir, all_preds, all_sets)
