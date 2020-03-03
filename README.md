@@ -1,6 +1,5 @@
-# Pan-Cancer Analysis with Multi-Omics Data using Graph Convolutional Networks
-This project aims at identifying new pan-cancer marker genes that using different kinds of -omics data in combination with protein-protein interactions.
-
+# EMOGI: Explainable Multi-Omics Graph Integration
+This project predicts cancer genes based on multi-omics feature vectors and protein-protein interactions. Each gene is a data point/node and semi-supervised graph convolutional networks are used for classifying cancer genes.
 
 ## Installation
 Requires the following python packages:
@@ -13,3 +12,29 @@ Requires the following python packages:
 * h5py
 * mygene
 * ...
+
+## Computing Contributions for Genes of Interest
+To compute the feature and interaction partner contributions for a gene of interest, use:
+```
+python lrp.py -m <path-to-model-directory> -g <hugo-symbol1> <hugo-symbol2> -b True/False
+```
+The genes have to be provided as hugo gene symbols, eg. `EGFR` or `BRCA1`. The `-b` option controls if the resulting plots are heatmaps (more compact, as shown in the paper) or more informative barplots whose error bars indicate standard deviation across cross-validation runs.
+
+## Training EMOGI with Own Data
+To train EMOGI with your own data, you have to provide a [HDF5](https://www.h5py.org/) container containing the graph, features and labels. There are scripts in `pancancer/preprocessing` that help with the contruction of the container. In general, a valid container for EMOGI has to contain a graph (called `network`, a numpy matrix of shape N x N), a feature matrix for the nodes (called `features`, of shape N x p), the gene names and IDs (called `gene_names`, as numpy array, dtype `object`), the training set (called `ỳ_train`, as boolean indicator array of shape N x 1), the test set of the same shape (called `y_test`), training and test masks (called `train_mask` and `test_mask`, again, indicator arrays of shape N x 1) and the names of the features (called `feature_names`, an array of length p). Optionally, the raw features can also be added to aid biological interpretation when analyzing the LRP plots (called `features_raw`, the first row plots the input features and it might be better to plot unnormalized values).
+
+The pancancer folder contains scripts to process and normalize:
+* Mutation MAF files (can be downloaded via TCGA data portal),
+* CNA copy number information as computed by GISTIC 2.0 (can be downloaded via [firehose](https://gdac.broadinstitute.org/))
+* DNA methylation data from Illumina 450k bead arrays (can be downloaded again from TCGA data portal)
+* Gene expression data (normalized data available in the publication from "Data Descriptor: Unifying cancer and normal RNA sequencing data from different sources" Wang et al., 2018).
+
+The [build_multiomics_container](pancancer/preprocessing/build_multiomics_container.ipynb) notebook then takes all the individually preprocessed data along with a PPI network of choice and constructs the HDF5 container.
+
+Each of the individual omics data types has its own readme file and many individual parameters for normalization and preprocessing. Also the PPI network preprocessing is explained in more detail in the respective readme file.
+
+Once you obtained a valid HDF5 container, you can simply train EMOGI with
+```
+python train_cv.py -d <path-to-hdf5-container> -hd <n_filters_layer1> <n_filters_layer2>
+```
+where the `-hd` argument specifies the number of graph convolutional layers (the number of arguments) and the number of filters per layer. Training with `-hd 100 50` for instance implies that EMOGI is trained with 2 graph convolutional layers with 100 and 50 filters.
