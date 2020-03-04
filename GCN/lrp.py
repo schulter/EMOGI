@@ -14,7 +14,7 @@ import math
 from multiprocessing import Process
 from deepexplain.tensorflow import DeepExplain
 #sys.path.append(os.path.abspath('../GCN'))
-from my_gcn import MYGCN
+from emogi import EMOGI
 import argparse
 
 
@@ -130,23 +130,25 @@ class LRP:
         }
         with tf.Session() as sess:
             with DeepExplain(session=sess) as de:
-                model = MYGCN(placeholders=placeholders,
+                model = EMOGI(placeholders=placeholders,
                               input_dim=self.features.shape[1],
                               learning_rate=self.params['lr'],
                               weight_decay=self.params['decay'],
                               num_hidden_layers=len(self.params['hidden_dims']),
                               hidden_dims=self.params['hidden_dims'],
                               pos_loss_multiplier=self.params['loss_mul'],
-                              logging=False, sparse_network=False)
+                              logging=False, sparse_network=False,
+                              name='mygcn' # for compatibility with older models
+                )
                 model.load(ckpt.model_checkpoint_path, sess)
                 idx_gene = self.node_names.index(gene_name)
                 mask_gene = np.zeros((self.features.shape[0], 1))
                 mask_gene[idx_gene] = 1
                 attributions =  de.explain(method="elrp",
-                                  T=tf.nn.sigmoid(model.outputs),
-                                  X=[placeholders['features'], *placeholders["support"]],
-                                  xs=[self.features, *self.support],
-                                  ys=mask_gene)
+                                           T=tf.nn.sigmoid(model.outputs),
+                                           X=[placeholders['features'], *placeholders["support"]],
+                                           xs=[self.features, *self.support],
+                                           ys=mask_gene)
         tf.reset_default_graph()
         return attributions
 
@@ -202,7 +204,7 @@ class LRP:
         for line in self.predicted_probs:
             if line[1] == gene_name:
                 # (gene name, true label, mean prediction)
-                plot_title = (gene_name, line[2], round(float(line[-2]), 3))
+                plot_title = (gene_name, line[2], round(float(line[14]), 3))
         n_neighbors = 3 # number of top neighbors to plot
         nrows = 3 + n_neighbors + 1
         #fig, ax = plt.subplots(nrows=nrows, ncols=1, figsize=(12, nrows*2+3))
@@ -358,14 +360,16 @@ class LRP:
         with tf.Session() as sess:
             with DeepExplain(session=sess) as de:
                 # create model and placeholders
-                model = MYGCN(placeholders=placeholders,
+                model = EMOGI(placeholders=placeholders,
                               input_dim=self.features.shape[1],
                               learning_rate=self.params['lr'],
                               weight_decay=self.params['decay'],
                               num_hidden_layers=len(self.params['hidden_dims']),
                               hidden_dims=self.params['hidden_dims'],
                               pos_loss_multiplier=self.params['loss_mul'],
-                              logging=False, sparse_network=False)
+                              logging=False, sparse_network=False,
+                              name='mygcn' # for compatibility with older models
+                )
                 model.load(ckpt.model_checkpoint_path, sess)
 
                 # get the explainer
@@ -585,7 +589,7 @@ def main():
     # interpreter = LRP(model_dir="/project/lincrnas/roman/diseasegcn/data/GCN/training/2019_03_06_15_45_33/")
     # interpreter.plot_lrp(["TP53", "KRAS", "TTN", "MYC", "TWIST1", "HIST1H3E", "APC"], n_processes=4)
     # feat_mean, feat_std, support_mean, support_std = interpreter.compute_lrp("TP53")
-    # interpreter.compute_lrp_all_genes()
+    # interpreter.compute_lrp_all_genes_fast()
 
 
 if __name__ == "__main__":

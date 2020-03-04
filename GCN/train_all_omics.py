@@ -14,27 +14,28 @@ import tensorflow as tf
 from scipy.sparse import lil_matrix
 import scipy.sparse as sp
 import numpy as np
-from train_cv import run_all_cvs
+from train_EMOGI_cv import run_all_cvs
 
 # plotting
 import matplotlib.pyplot as plt
 import seaborn as sns
 import math
+
 bestSplit = lambda x: (round(math.sqrt(x)), math.ceil(x / round(math.sqrt(x))))
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Train GCN model and save to file')
+    parser = argparse.ArgumentParser(description='Train EMOGI for combinations of Omics levels')
     parser.add_argument('-e', '--epochs', help='Number of Epochs',
                         dest='epochs',
-                        default=150,
+                        default=7000,
                         type=int
                         )
     parser.add_argument('-lr', '--learningrate', help='Learning Rate',
                         dest='lr',
-                        default=.1,
+                        default=.001,
                         type=float
                         )
     parser.add_argument('-s', '--support', help='Neighborhood Size in Convolutions',
@@ -46,16 +47,16 @@ def parse_args():
                         help='Hidden Dimensions (number of filters per layer. Also determines the number of hidden layers.',
                         nargs='+',
                         dest='hidden_dims',
-                        required=True)
+                        default=[50, 100])
     parser.add_argument('-lm', '--loss_mul',
                         help='Number of times, false negatives are weighted higher than false positives',
                         dest='loss_mul',
-                        default=1,
+                        default=30,
                         type=float
                         )
     parser.add_argument('-wd', '--weight_decay', help='Weight Decay',
                         dest='decay',
-                        default=5e-4,
+                        default=5e-2,
                         type=float
                         )
     parser.add_argument('-do', '--dropout', help='Dropout Percentage',
@@ -112,7 +113,7 @@ if __name__ == "__main__":
     hidden_dims = [int(x) for x in args.hidden_dims]
 
     if not os.path.isdir(args.data):
-        print("Data is not a directory. This script uses all HDF5 containers in the directory for training. Consider using `train_cv.py` for training only one HDF5 container.")
+        print("Data is not a directory. This script uses all HDF5 containers in the directory for training. Consider using `train_EMOGI_cv.py` for training only one HDF5 container.")
         sys.exit(-1)
 
     output_dir = gcnIO.create_model_dir()
@@ -123,7 +124,7 @@ if __name__ == "__main__":
     base_dir = args.data
     for data_file in os.listdir(base_dir):
         if data_file.endswith('.h5'):
-            print ("Detected {}. Running GCN with that file!".format(data_file))
+            print ("Detected {}. Training EMOGI with that file!".format(data_file))
             omics_type = '_'.join(data_file.split('.')[0].split('_')[1:])
             data_types.append(omics_type)
             training_dir = os.path.join(output_dir, omics_type)

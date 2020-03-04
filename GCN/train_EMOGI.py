@@ -1,7 +1,7 @@
 import argparse, os, sys
 import tensorflow as tf
 import utils, gcnIO
-from my_gcn import MYGCN
+from emogi import EMOGI
 
 from scipy.sparse import lil_matrix
 import scipy.sparse as sp
@@ -85,7 +85,7 @@ def fit_model(model, sess, features, placeholders,
         feed_dict.update({placeholders['dropout']: dropout_rate})
         _ = sess.run(model.opt_op, feed_dict=feed_dict)
         train_loss, train_acc, train_aupr, train_auroc = sess.run(performance_ops,
-                                                                    feed_dict=feed_dict)
+                                                                  feed_dict=feed_dict)
         if model.logging:
             s = sess.run(merged, feed_dict=feed_dict)
             train_writer.add_summary(s, epoch)
@@ -103,10 +103,11 @@ def fit_model(model, sess, features, placeholders,
                 test_writer.add_summary(s, epoch)
                 test_writer.flush()
                 print("Epoch:", '%04d' % (epoch + 1),
-                        "Test Loss=", "{:.5f}".format(val_loss),
-                        "Test Acc=", "{:.5f}".format(val_acc),
-                        "Test AUROC={:.5f}".format(val_auroc),
-                        "Test AUPR: {:.5f}".format(val_aupr))
+                      "Test Loss=", "{:.5f}".format(val_loss),
+                      "Test Acc=", "{:.5f}".format(val_acc),
+                      "Test AUROC={:.5f}".format(val_auroc),
+                      "Test AUPR: {:.5f}".format(val_aupr)
+                )
             """
             if early_stopping_mon.should_stop(val_loss):
                 print ("Early Stopping")
@@ -126,14 +127,15 @@ def fit_model(model, sess, features, placeholders,
         print("Save model to {}".format(model_save_path))
         path = model.save(model_save_path, sess=sess)
     else: # restore early stopping best model
-        model = MYGCN(placeholders=placeholders,
-                    input_dim=features[2][1],
-                    learning_rate=0.1,
-                    weight_decay=model.weight_decay,
-                    num_hidden_layers=model.num_hidden_layers,
-                    hidden_dims=model.hidden_dims,
-                    pos_loss_multiplier=model.pos_loss_multiplier,
-                    logging=True)
+        model = EMOGI(placeholders=placeholders,
+                      input_dim=features[2][1],
+                      learning_rate=0.1,
+                      weight_decay=model.weight_decay,
+                      num_hidden_layers=model.num_hidden_layers,
+                      hidden_dims=model.hidden_dims,
+                      pos_loss_multiplier=model.pos_loss_multiplier,
+                      logging=True
+        )
         model.load(model_save_path, sess=sess)
     return model
 
@@ -181,7 +183,6 @@ def train_gcn(data_path, n_support, hidden_dims, learning_rate,
     input_data_path = data_path
     data = gcnIO.load_hdf_data(input_data_path, feature_name='features')
     adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feature_names = data
-    #features = features[:, :, 0] # to simulate 2D
     print("Read data from: {}".format(input_data_path))
 
     # preprocess features
@@ -189,6 +190,9 @@ def train_gcn(data_path, n_support, hidden_dims, learning_rate,
     if num_feat > 1:
         #features = utils.preprocess_features(lil_matrix(features))
         #features = utils.sparse_to_tuple(lil_matrix(features))
+        # we dont row-normalize the data because it doesn't seem to benefit
+        # classification and the data is assumed to be normalized anyways.
+        # For different applications, you might consider normalization here.
         pass
     else:
         print("Not row-normalizing features because feature dim is {}".format(num_feat))
@@ -211,7 +215,7 @@ def train_gcn(data_path, n_support, hidden_dims, learning_rate,
     # start actual tensorflow stuff
     with tf.Session() as sess:
         # initialize model and metrics
-        model = MYGCN(placeholders=placeholders,
+        model = EMOGI(placeholders=placeholders,
                       input_dim=features.shape[1],
                       learning_rate=learning_rate,
                       weight_decay=weight_decay,
@@ -243,15 +247,15 @@ def train_gcn(data_path, n_support, hidden_dims, learning_rate,
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description='Train GCN model and save to file')
+        description='Train EMPGI and save to file')
     parser.add_argument('-e', '--epochs', help='Number of Epochs',
                         dest='epochs',
-                        default=150,
+                        default=7000,
                         type=int
                         )
     parser.add_argument('-lr', '--learningrate', help='Learning Rate',
                         dest='lr',
-                        default=.1,
+                        default=.001,
                         type=float
                         )
     parser.add_argument('-s', '--support', help='Neighborhood Size in Convolutions',
@@ -260,19 +264,19 @@ def parse_args():
                         type=int
                         )
     parser.add_argument('-hd', '--hidden_dims',
-                        help='Hidden Dimensions (number of filters per layer. Also determines the number of hidden layers.',
+                        help='Hidden Dimensions (number of filters per layer). Also determines the number of hidden layers.',
                         nargs='+',
                         dest='hidden_dims',
-                        required=True)
+                        default=[50, 100])
     parser.add_argument('-lm', '--loss_mul',
                         help='Number of times, false negatives are weighted higher than false positives',
                         dest='loss_mul',
-                        default=1,
+                        default=30,
                         type=float
                         )
     parser.add_argument('-wd', '--weight_decay', help='Weight Decay',
                         dest='decay',
-                        default=5e-4,
+                        default=5e-2,
                         type=float
                         )
     parser.add_argument('-do', '--dropout', help='Dropout Percentage',
@@ -282,7 +286,8 @@ def parse_args():
                         )
     parser.add_argument('-d', '--data', help='Path to HDF5 container with data',
                         dest='data',
-                        type=str
+                        type=str,
+                        required=True
                         )
     args = parser.parse_args()
     return args
@@ -291,11 +296,11 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
     if not args.data.endswith('.h5'):
-        print("Data is not hdf5 container. Exit now.")
+        print("Data is not a hdf5 container. Exit now.")
         sys.exit(-1)
 
     #output_dir = gcnIO.create_model_dir()
-    output_dir = '../data/GCN/training/2019_08_30_15_21_15'
+    output_dir = '../data/GCN/training/test/'
     predictions = train_gcn(data_path=args.data,
                             n_support=args.support,
                             hidden_dims=args.hidden_dims,

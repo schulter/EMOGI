@@ -11,22 +11,22 @@ import utils, gcnIO, gcnPreprocessing
 from scipy.sparse import lil_matrix
 import scipy.sparse as sp
 import numpy as np
-from train_gcn import *
-from my_gcn import MYGCN
+from train_EMOGI import *
+from emogi import EMOGI
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Train GCN model and save to file')
+    parser = argparse.ArgumentParser(description='Train EMOGI with cross-validation and save model to file')
     parser.add_argument('-e', '--epochs', help='Number of Epochs',
                         dest='epochs',
-                        default=150,
+                        default=7000,
                         type=int
                         )
     parser.add_argument('-lr', '--learningrate', help='Learning Rate',
                         dest='lr',
-                        default=.1,
+                        default=.001,
                         type=float
                         )
     parser.add_argument('-s', '--support', help='Neighborhood Size in Convolutions',
@@ -38,16 +38,16 @@ def parse_args():
                         help='Hidden Dimensions (number of filters per layer. Also determines the number of hidden layers.',
                         nargs='+',
                         dest='hidden_dims',
-                        required=True)
+                        default=[50, 100])
     parser.add_argument('-lm', '--loss_mul',
                         help='Number of times, false negatives are weighted higher than false positives',
                         dest='loss_mul',
-                        default=1,
+                        default=30,
                         type=float
                         )
     parser.add_argument('-wd', '--weight_decay', help='Weight Decay',
                         dest='decay',
-                        default=5e-4,
+                        default=5e-2,
                         type=float
                         )
     parser.add_argument('-do', '--dropout', help='Dropout Percentage',
@@ -57,7 +57,8 @@ def parse_args():
                         )
     parser.add_argument('-d', '--data', help='Path to HDF5 container with data',
                         dest='data',
-                        type=str
+                        type=str,
+                        required=True
                         )
     parser.add_argument('-cv', '--cv_runs', help='Number of cross validation runs',
                     dest='cv_runs',
@@ -78,17 +79,16 @@ def single_cv_run(session, support, num_supports, features, y_train, y_test, tra
         'labels': tf.placeholder(tf.float32, shape=(None, y_train.shape[1]), name='Labels'),
         'labels_mask': tf.placeholder(tf.int32, shape=train_mask.shape, name='LabelsMask'),
         'dropout': tf.placeholder_with_default(0., shape=(), name='Dropout')
-        #'num_features_nonzero': tf.placeholder(tf.int32, shape=())
     }
     # construct model (including computation graph)
-    model = MYGCN(placeholders=placeholders,
-                    input_dim=features.shape[1],
-                    learning_rate=args['lr'],
-                    weight_decay=args['decay'],
-                    num_hidden_layers=len(hidden_dims),
-                    hidden_dims=hidden_dims,
-                    pos_loss_multiplier=args['loss_mul'],
-                    logging=True
+    model = EMOGI(placeholders=placeholders,
+                  input_dim=features.shape[1],
+                  learning_rate=args['lr'],
+                  weight_decay=args['decay'],
+                  num_hidden_layers=len(hidden_dims),
+                  hidden_dims=hidden_dims,
+                  pos_loss_multiplier=args['loss_mul'],
+                  logging=True
     )
     # fit the model
     model = fit_model(model, session, features, placeholders,
@@ -156,7 +156,7 @@ if __name__ == "__main__":
     args = parse_args()
 
     if not args.data.endswith('.h5'):
-        print("Data is not hdf5 container. Exit now.")
+        print("Data is not a hdf5 container. Exit now.")
         sys.exit(-1)
 
     output_dir = gcnIO.create_model_dir()

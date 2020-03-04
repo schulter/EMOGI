@@ -1,19 +1,16 @@
 
 import tensorflow as tf
-#from utils import *
 
 from gcn.layers import GraphConvolution, dot
 from gcn.models import Model
 from gcn.inits import glorot
 
-#from gcn.metrics import masked_accuracy
 import io
 import matplotlib.pyplot as plt
 import math
 import numpy as np
+
 bestSplit = lambda x: (round(math.sqrt(x)), math.ceil(x / round(math.sqrt(x))))
-
-
 
 def sparse_dropout(x, keep_prob, noise_shape):
     """Dropout for sparse tensors."""
@@ -29,7 +26,7 @@ def glorot_3d(shape, name=None):
     initial = tf.random_uniform(shape, minval=-init_range, maxval=init_range, dtype=tf.float32)
     return tf.Variable(initial, name=name)
 
-class MyGraphConvolution(GraphConvolution):
+class GraphConvolution2DAnd3D(GraphConvolution):
     def __init__(self, input_dim, output_dim, placeholders, dropout=0.,
                  sparse_inputs=False, act=tf.nn.relu, bias=False,
                  featureless=False, sparse_network=True, **kwargs):
@@ -96,6 +93,7 @@ class MyGraphConvolution(GraphConvolution):
         # dropout
         x = tf.nn.dropout(x, rate=self.dropout)
 
+        # 3D graph convolution (convolve omics levels like channels in rbg images)
         if len(x.get_shape().as_list()) == 3:
             supports = list()
             for i in range(len(self.support)):
@@ -109,8 +107,7 @@ class MyGraphConvolution(GraphConvolution):
                 support = tf.add_n(gc_channels)
                 supports.append(support)
             output = tf.add_n(supports)
-        else:
-            # convolve
+        else: # 2D graph convolution
             supports = list()
             for i in range(len(self.support)):
                 if not self.featureless:
@@ -139,11 +136,20 @@ class MyGraphConvolution(GraphConvolution):
             return outputs
 
 
-class MYGCN (Model):
+class EMOGI(Model):
+    """EMOGI model. A GCN with 3D graph convolutions and weighted loss.
+
+    This class implements the EMOGI model. It is derived from the GCN
+    model but contains some different metrics for logging (AUPR and AUROC
+    for binary classification settings), a weighted loss function for
+    imbalanced class sizes (eg. more negatives than positives) and
+    the support for 3D graph convolutions (third dimension is treated
+    similarly to channels in rgb images).
+    """
     def __init__(self, placeholders, input_dim, learning_rate=0.1,
                  num_hidden_layers=2, hidden_dims=[20, 40], pos_loss_multiplier=1,
                  weight_decay=5e-4, sparse_network=True, **kwargs):
-        super(MYGCN, self).__init__(**kwargs)
+        super(EMOGI, self).__init__(**kwargs)
 
         # some checks first
         assert (num_hidden_layers == len(hidden_dims))
@@ -155,7 +161,6 @@ class MYGCN (Model):
             self.input_dim = placeholders['features'].get_shape().as_list()[1:]
         else:
             self.input_dim = placeholders['features'].get_shape().as_list()[1]
-        #print ("Input dim: {}".format(self.input_dim))
         self.output_dim = placeholders['labels'].get_shape().as_list()[1]
         self.placeholders = placeholders
         self.optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
@@ -176,28 +181,28 @@ class MYGCN (Model):
         inp_dim = self.input_dim
         for l in range(self.num_hidden_layers):
             sparse_layer = l==0 if self.sparse_network else False
-            self.layers.append(MyGraphConvolution(input_dim=inp_dim,
-                                                  output_dim=self.hidden_dims[l],
-                                                  placeholders=self.placeholders,
-                                                  act=tf.nn.relu,
-                                                  dropout=True,
-                                                  sparse_inputs=sparse_layer,
-                                                  name='gclayer_{}'.format(l+1),
-                                                  logging=self.logging,
-                                                  sparse_network=self.sparse_network)
+            self.layers.append(GraphConvolution2DAnd3D(input_dim=inp_dim,
+                                                       output_dim=self.hidden_dims[l],
+                                                       placeholders=self.placeholders,
+                                                       act=tf.nn.relu,
+                                                       dropout=True,
+                                                       sparse_inputs=sparse_layer,
+                                                       name='gclayer_{}'.format(l+1),
+                                                       logging=self.logging,
+                                                       sparse_network=self.sparse_network)
             )
             inp_dim = self.hidden_dims[l]
         # add last layer
         layer_n = self.num_hidden_layers + 1
-        self.layers.append(MyGraphConvolution(input_dim=self.hidden_dims[-1],
-                                              output_dim=self.output_dim,
-                                              placeholders=self.placeholders,
-                                              act=lambda x: x,
-                                              dropout=True,
-                                              sparse_inputs=False,
-                                              name='gclayer_{}'.format(layer_n),
-                                              logging=self.logging,
-                                              sparse_network=self.sparse_network)
+        self.layers.append(GraphConvolution2DAnd3D(input_dim=self.hidden_dims[-1],
+                                                   output_dim=self.output_dim,
+                                                   placeholders=self.placeholders,
+                                                   act=lambda x: x,
+                                                   dropout=True,
+                                                   sparse_inputs=False,
+                                                   name='gclayer_{}'.format(layer_n),
+                                                   logging=self.logging,
+                                                   sparse_network=self.sparse_network)
         )
 
     def _loss(self):

@@ -14,10 +14,10 @@ import gcnIO
 import gcnPreprocessing
 import utils
 from gcn.models import GCN
-from my_gcn import MYGCN
-from train_gcn import fit_model, predict
+from emogi import EMOGI
+from train_EMOGI import fit_model, predict
 
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # suppress TF info messages
 
 
 def run_model(session, params, adj, num_cv, features, y, mask, output_dir):
@@ -27,22 +27,21 @@ def run_model(session, params, adj, num_cv, features, y, mask, output_dir):
     support, num_supports = utils.get_support_matrices(adj, params['support'])
     # construct placeholders & model
     placeholders = {
-        'support': [tf.sparse_placeholder(tf.float32) for _ in range(num_supports)],
-        'features': tf.sparse_placeholder(tf.float32, shape=features[2]),
-        'labels': tf.placeholder(tf.float32, shape=(None, y.shape[1])),
-        'labels_mask': tf.placeholder(tf.int32),
-        'dropout': tf.placeholder_with_default(0., shape=()),
-        'num_features_nonzero': tf.placeholder(tf.int32)  # helper variable for sparse dropout
+        'support': [tf.sparse_placeholder(tf.float32, name='support_{}'.format(i)) for i in range(num_supports)],
+        'features': tf.placeholder(tf.float32, shape=features.shape, name='Features'),
+        'labels': tf.placeholder(tf.float32, shape=(None, y.shape[1]), name='Labels'),
+        'labels_mask': tf.placeholder(tf.int32, shape=mask.shape, name='LabelsMask'),
+        'dropout': tf.placeholder_with_default(0., shape=(), name='Dropout')
     }
-    model = MYGCN(placeholders=placeholders,
-                  input_dim=features[2][1],
+    model = EMOGI(placeholders=placeholders,
+                  input_dim=features.shape[1],
                   learning_rate=params['learningrate'],
                   weight_decay=params['weight_decay'],
                   num_hidden_layers=len(params['hidden_dims']),
                   hidden_dims=params['hidden_dims'],
                   pos_loss_multiplier=params['loss_mul'],
-                  logging=False)
-    
+                  logging=False
+    )
     # where the results go
     accs = []
     losses = []
@@ -54,7 +53,7 @@ def run_model(session, params, adj, num_cv, features, y, mask, output_dir):
                                                     folds=num_cv
     )
     for cv_run in range(num_cv):
-        # select some training genes randomly
+        # train model
         y_train, y_val, train_mask, val_mask = k_sets[cv_run]
         model = fit_model(model=model,
                           sess=session,
@@ -108,7 +107,7 @@ def check_param_already_done(training_dir, params):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Train GCN model and save to file')
+    parser = argparse.ArgumentParser(description='Run a grid search over HP combinations using cross-validation.')
     parser.add_argument('-d', '--data', help='Path to the data container',
                         dest='data',
                         type=str,
@@ -119,9 +118,14 @@ def parse_args():
                     default=5,
                     type=int
                     )
-    parser.add_argument('-o', '--output_dir', help='Number of cross validation runs',
-                    dest='output_dir',
+    parser.add_argument('-td', '--training_dir', help='Training directory name. If already exists, grid search will continue.',
+                    dest='train_dir',
                     default=None,
+                    type=str
+                    )
+    parser.add_argument('-o', '--output', help='Output file. A pickle file with performance for HP combinations.',
+                    dest='output_file',
+                    required=True,
                     type=str
                     )
     args = parser.parse_args()
@@ -129,7 +133,17 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
-    print ("Loading Data...")
+    if not args.data.endswith('.h5'):
+        print("Data is not a hdf5 container. Exit now.")
+        sys.exit(-1)
+    basename_out = os.path.dirname(args.output_file)
+    if not os.path.isdir(basename_out) and not os.path.dirname(basename_out) is '':
+        print ("Directory {} doesn't exist. Can't write output to {}".format(basename_out,
+                                                                             args.output_file)
+        )
+        sys.exit(-1)
+
+    print ("Loading Data from {}".format(args.data))
     cv_runs = args.cv_runs
     data = gcnIO.load_hdf_data(args.data,
                                feature_name='features')
@@ -140,41 +154,41 @@ if __name__ == "__main__":
     if num_feat > 1:
         #features = utils.preprocess_features(lil_matrix(features))
         print ("Not row-normalizing...")
-        features = utils.sparse_to_tuple(lil_matrix(features))
+        #features = utils.sparse_to_tuple(lil_matrix(features))
     else:
         print ("Not row-normalizing features because feature dim is {}".format(num_feat))
-        features = utils.sparse_to_tuple(lil_matrix(features))
+        #features = utils.sparse_to_tuple(lil_matrix(features))
 
+    """
     params = {'support':[1],
               'dropout':[0.5],
-              'hidden_dims': [[20, 40],
-                              [100, 50, 10], [50, 100], [50, 40, 30, 20, 10]],
-              'loss_mul': [10, 45, 90, 150, 250],
+              'hidden_dims': [[20, 40], [100, 50], [50, 40, 40, 20],
+                              [100, 50, 10], [50, 100], [300, 100]],
+              'loss_mul': [10, 30, 45, 60, 90, 150],
               'learningrate':[0.001],
               'epochs':[2000],
               'weight_decay':[5e-3]
               }
     """
     params = {'support':[1],
-              'dropout':[.1, .5, .1],
+              'dropout':[.1],
               'hidden_dims':[[50, 40], [40, 20]],
               'loss_mul':[1],
               'learningrate':[.1],
               'epochs':[30],
               'weight_decay':[0.05]
               }
-    """
 
     num_of_settings = len(list(ParameterGrid(params)))
     print ("Grid Search: Trying {} different parameter settings...".format(num_of_settings))
     param_num = 0
     # create output directory or set existing one
-    if args.output_dir is None:
+    if args.train_dir is None:
         out_dir = gcnIO.create_model_dir()
-    elif os.path.isdir(args.output_dir):
-        out_dir = args.output_dir
+    elif os.path.isdir(args.train_dir):
+        out_dir = args.train_dir
     else:
-        print ("Cannot output to {} because it is not a directory.".format(args.output_dir))
+        print ("Cannot output to {} because it is not a directory.".format(args.train_dir))
         sys.exit(-1)
     # create session, train and save afterwards
     performances = []
@@ -200,7 +214,7 @@ if __name__ == "__main__":
             tf.reset_default_graph()
         param_num += 1
         print ("[{} out of {} combinations]: {}".format(param_num, num_of_settings, param_set))
+
     # write results from gridsearch to file
-    out_name = '../data/gridsearch/gridsearchcv_results_multiomics_IREF_mutgenelengthnorm.pkl'
-    with open(out_name, 'wb') as f:
+    with open(args.output_file, 'wb') as f:
         pickle.dump(performances, f)
