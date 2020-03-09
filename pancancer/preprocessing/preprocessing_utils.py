@@ -86,6 +86,48 @@ def get_ensembl_from_symbol(list_of_gene_symbols):
     node_names.drop_duplicates(inplace=True)
     return node_names
 
+
+def get_entrez_from_symbol(list_of_symbols):
+    """Get the entrez IDs from a list of Hugo Gene Symbols using mygene.
+
+    This function retrieves Entrez IDs from Hugo Gene Symbols using
+    the mygene python API. It requires a stable internet connection to
+    retrieve the annotations.
+    @see get_ensembl_from_symbol
+
+    Parameters:
+    ----------
+    list_of_symbols:        A list of strings containing the
+                                Ensembl IDs
+    
+    Returns:
+    A dataframe containing the mapping between symbols and Entrez IDs.
+    If no symbol could be found for an ID, NA is returned in that row.
+    The index of the dataframe are the Entrez IDs and the symbols are
+    in the other column.
+    """
+    # get Ensembl IDs for gene names
+    mg = mygene.MyGeneInfo()
+    res = mg.querymany(list_of_symbols,
+                       scopes='symbol',
+                       fields='entrezgene',
+                       species='human', returnall=True
+                      )
+
+    def get_symbol_and_entrez(x):
+        if 'entrezgene' in x:
+            entrez_id = x['entrezgene']
+            symbol = x['query']
+            return [symbol, entrez_id]
+        else:
+            return [x['query'], None]
+    output = [get_symbol_and_entrez(d) for d in res['out']]
+    # now, retrieve the names and IDs from a dictionary and put in DF
+    output = pd.DataFrame(output, columns=['Symbol', 'Entrez_ID']).set_index('Entrez_ID')
+    output.dropna(axis=0, inplace=True)
+    return output
+
+
 def load_PPI_network(network_name, verbose=False):
     """Load one of several PPI networks which we use in the analysis.
 
@@ -197,6 +239,8 @@ def get_positive_labels(nodes, strategy='all', cancer_type='pancancer', remove_b
     Returns:
     A subset of the "nodes" DataFrame with the cancer genes.
     """
+    os_cwd = os.getcwd()
+    os.chdir(os.path.dirname(os.path.realpath(__file__)))
     ncg_known_cancer_genes = []
     n = 0
     with open('../../data/pancancer/NCG/cancergenes_list.txt', 'r') as f:
@@ -265,11 +309,11 @@ def get_positive_labels(nodes, strategy='all', cancer_type='pancancer', remove_b
                 for line in f.readlines():
                     known_cancer_genes.append(line.strip())
         else:
-            # add expression literature evidence (digSEE)
+            # add digSEE genes for the cancer type in question for all omics
             for evidence_type in ['mutation', 'methylation', 'expression']:
                 fname = '../../data/pancancer/digSEE/{0}/{0}_{1}.txt'.format(evidence_type, cancer_type.upper())
                 evidence = pd.read_csv(fname, sep='\t')
-                high_scores = evidence[evidence['EVIDENCE SENTENCE SCORE'] >= 0.3]
+                high_scores = evidence[evidence['EVIDENCE SENTENCE SCORE'] >= 0.8]
                 known_cancer_genes += high_scores['GENE SYMBOL'].tolist()
             known_cancer_genes = list(set(known_cancer_genes)) # remove duplicates
         known_cancer_genes_innet = nodes[nodes.Name.isin(ncg_known_cancer_genes)].Name
@@ -290,6 +334,7 @@ def get_positive_labels(nodes, strategy='all', cancer_type='pancancer', remove_b
         known_cancer_genes_innet = non_blood_cancer_genes[non_blood_cancer_genes['Gene Symbol'].isin(known_cancer_genes_innet)]['Gene Symbol']
         if verbose:
             print ("Left with {} known cancer genes after removal of blood cancer genes".format(known_cancer_genes_innet.shape[0]))
+    os.chdir(os_cwd)
     return known_cancer_genes_innet
 
 
