@@ -8,3 +8,5 @@ completely to reproduce expected behavior while for others, the results seem to 
 The notebook provides MA plots, gene-wise (and general) expression plots over cancer types, histograms and a UMAP embedding
 of samples colored by the cancer type. We decided to use GTEx normalization of the normalized and batch corrected data from
 Wang et al. because that yielded the UMAP embedding where tumor and normal tissues were closest.
+
+The script writes a gene x sample matrix to a HDF5 container and a gene x cancer type matrix with the average fold changes of that gene in the cancer type as tab-separated value file.
