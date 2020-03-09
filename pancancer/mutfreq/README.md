@@ -8,13 +8,13 @@ aberrations (both, amplified and deleted regions). The data has to be downloaded
 ```
 ./firehose_get -tasks gistic analysis latest
 ```
-The [notebook](mutfreq/preprocess_cnas.ipynb) writes two matrices to file,
+The [notebook](preprocess_cnas.ipynb) writes two matrices to file,
 containing the average copy number effect frequency (mean over samples for a cancer type) per cancer type and gene as well as
 a matrix with the copy number changes per sample and gene. It further plots distributions over cancer types and computes a UMAP
 embedding of the samples, colored by cancer type.
 
 ## Preprocessing of SNVs
-The [notebook](mutfreq/preprocess_mutation_freqs.ipynb) preprocesses single nucleotide variants from MAF files and then
+The [notebook](preprocess_mutation_freqs.ipynb) preprocesses single nucleotide variants from MAF files and then
 (optionally) uses the already computed CNA frequencies together with SNVs to copmute mutation frequencies per gene and sample.
 The notebook can normalize SNV frequencies for exonic gene length if GENCODE annotation is provided.
 Again, the script offers ways to compute UMAP embeddings of samples colored by cancer type and basic plots that verify the
