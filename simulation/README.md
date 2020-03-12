@@ -5,7 +5,7 @@ biological characteristics (power-law node degree distribution and the like) and
 This way, the performance of EMOGI recovering these graph modules can be evaluated.
 
 ## Simulation
-[This notebook](EMOGI_preprocessing_NetSim_modules.ipynb) copmutes a HDF5 container with random feature vectors for the nodes
+[This notebook](EMOGI_preprocessing_NetSim_modules.ipynb) computes a HDF5 container with random feature vectors for the nodes
 following different gaussian distributions. The values in the graph motifs get values from one distribution while the rest
 gets values from the other one. The closer those two distributions are, the harder it becomes to classify based on features
 alone and the graph structure becomes more important.
