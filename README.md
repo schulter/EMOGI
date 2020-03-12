@@ -35,12 +35,4 @@ python train_cv.py -d <path-to-hdf5-container> -hd <n_filters_layer1> <n_filters
 where the `-hd` argument specifies the number of graph convolutional layers (the number of arguments) and the number of filters per layer. Training with `-hd 100 50` for instance implies that EMOGI is trained with 2 graph convolutional layers with 100 and 50 filters.
 
 ## Preparing Own Data for Use with EMOGI
-The pancancer folder contains scripts to process and normalize:
-* [Mutation MAF files](pancancer/mutfreq/README.md) (can be downloaded via TCGA data portal),
-* [CNA copy number information](pancancer/mutfreq/README.md) as computed by GISTIC 2.0 (can be downloaded via [firehose](https://gdac.broadinstitute.org/))
-* [DNA methylation data](pancancer/methylation/README.md) from Illumina 450k bead arrays (can be downloaded again from TCGA data portal)
-* [Gene expression data](pancancer/expression/README.md) (normalized data available in the publication from "Data Descriptor: Unifying cancer and normal RNA sequencing data from different sources" Wang et al., 2018).
-
-The [build_multiomics_container](pancancer/preprocessing/build_multiomics_container.ipynb) notebook then takes all the individually preprocessed data along with a PPI network of choice and constructs the HDF5 container.
-
-Each of the individual omics data types has its own readme file and many individual parameters for normalization and preprocessing. Also the PPI network preprocessing is explained in more detail in the respective readme file.
+See the [readme file in pancancer](pancancer/README.md) for explanations on how you can process your own data and prepare it for EMOGI training.
