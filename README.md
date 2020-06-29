@@ -2,17 +2,22 @@
 This project predicts cancer genes based on multi-omics feature vectors and protein-protein interactions. Each gene is a data point/node and semi-supervised graph convolutional networks are used for classifying cancer genes.
 
 ## Installation
-Requires the following python packages:
+To run EMOGI, the following packages are required:
+* Numpy
+* Pandas
 * Tensorflow
 * h5py
 * Networkx
-* deepExplain
-* mygene
+* deepExplain (for an implementation of LRP)
+* mygene (for mapping of gene IDs)
+
+For plotting and correct functioning of all the notebooks, you additionally might need:
 * Matplotlib
 * Seaborn
 * Sklearn
 * Scipy
-* ...
+* Goatools (for pathway enrichment)
+* UMAP (for dimension reduction)
 
 ## Computing Contributions for Genes of Interest
 A trained EMOGI model can be interrogated in a gene-wise fashion to find out why the algorithm considered a gene a cancer gene or not.
