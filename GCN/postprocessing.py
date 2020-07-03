@@ -34,6 +34,143 @@ np.set_printoptions(suppress=True)
 pd.set_option('display.float_format', lambda x: '%.3f' % x)
 
 
+def get_training_data(training_dir):
+    """Load data from a EMOGI trained model.
+
+    This method gets the source file of the EMOGI training (HDF5 container)
+    and extracts the data from it.
+    Parameters:
+    ----------
+    training_dir:               The directory containing an EMOGI model
+
+    Returns:
+    The data used for EMOGI training in the following order:
+    Adjacency matrix of the PPI network, features, train labels, validation labels,
+    test labels, training mask, validation mask, test mask,
+    the names of the genes in the order that they appear in features and adjacency
+    matrix (row names as Ensembl IDs and HUGO symbols,
+    feature names (column names).
+    """
+    args, data_file = gcnIO.load_hyper_params(training_dir)
+    if os.path.isdir(data_file): # FIXME: This is hacky and not guaranteed to work at all!
+        network_name = None
+        for f in os.listdir(data_file):
+            if network_name is None:
+                network_name = f.split('_')[0].upper()
+            else:
+                assert (f.split('_')[0].upper() == network_name)
+        fname = '{}_{}.h5'.format(network_name, training_dir.strip('/').split('/')[-1])
+        data_file = os.path.join(data_file, fname)
+    data = gcnIO.load_hdf_data(data_file)
+    return data
+
+
+def get_optimal_cutoff(pred, node_names, test_mask, y_test, colname='Mean_Pred'):
+    """Compute an optimal cutoff for classification based on PR curve.
+
+    This method computes optimal an optimal cutoff (the point
+    closest to the upper right corner in a PR curve).
+    Parameters:
+    ----------
+    pred:                       The EMOGI predictions as computed by
+                                compute_ensemble_predictions (pd DataFrame)
+    node_names:                 The gene names in the order of the features and network
+                                as computed by get_training_data (np object array)
+    test_mask:                  The test mask as computed by get_training_data
+    y_test:                     The test labels as computed by get_training_data
+    colname:                    The name of the column of pred that contains
+                                the output probability (EMOGI score)
+    
+    Returns:
+    The optimal cutoff as float
+    """
+    pred_test = pred[pred.Name.isin(node_names[test_mask, 1])]
+    y_true = pred_test.label
+    y_score = pred_test[colname]
+    pr, rec, thresholds = precision_recall_curve(y_true=y_true, probas_pred=y_score)
+    pr = pr[1:]
+    rec = rec[1:]
+    thresholds = thresholds[1:]
+    distances = np.sqrt(np.sum((np.array([1, 1]) - np.array([rec, pr]).T)**2, axis=1))
+    idx = np.argmin(distances)
+    best_threshold = thresholds[idx]
+    return best_threshold
+
+
+def get_predictions(train_dir):
+    pred_file = os.path.join(train_dir, 'ensemble_predictions.tsv')
+    if os.path.isfile(pred_file):
+        pred = pd.read_csv(pred_file, sep='\t')
+        return pred
+    else:
+        return None
+
+def get_metric_score(pred, node_names, knowns, candidates, cutoff, negatives=None,
+                     metric='recall', colname='Mean_Pred'):
+    """Compute metric on different datasets from predictions.
+
+    This methods computes different metrics for a list of predictions (pd DataFrame)
+    and two different gene sets (supposed to be independent of the training data).
+    It supports precision, recall, AUPR and F1 scores. When metrics are used that
+    don't require a cutoff, then this parameter is ignored.
+
+    Parameters:
+    ----------
+    pred:                       The EMOGI predictions as computed by
+                                compute_ensemble_predictions (pd DataFrame)
+    node_names:                 The gene names in the order of the features and network
+                                as computed by get_training_data (np object array)
+    knowns:                     A list of genes which are considered positives.
+                                (All other genes will be considered negatives)
+    candidates:                 Another list of genes which are considered positives.
+                                The metric is computed for both of the sets individually.
+    cutoff:                     A cutoff to use for predictions
+    negatives:                  Optionally, a set of negatives can be used to not
+                                consider all other genes negatives. If given, the metric
+                                is computed on positives and negatives only, otherwise
+                                all genes are considered negatives.
+    metric:                     Can be any of precision, recall, aupr or f1 as a string.
+                                Case-insensitive.
+    colname:                    The name of the column of pred that contains
+                                the output probability (EMOGI score)
+    
+    Returns:
+    Two float values containing the metrics for knowns and candidates.
+    """
+    y_knowns = pred.Name.isin(knowns)
+    y_candidates = pred.Name.isin(candidates)
+    negatives = None
+    if not negatives is None: # either use the negatives or not
+        y_all_knowns = list(knowns) + list(negatives)
+        y_all_cand = list(candidates) + list(negatives)
+        y_pred_knowns = pred[pred.Name.isin(y_all_knowns)]
+        y_true_knowns = y_knowns[pred.Name.isin(y_all_knowns)]
+        y_pred_cand = pred[pred.Name.isin(y_all_cand)]
+        y_true_cand = y_candidates[pred.Name.isin(y_all_cand)]
+    else:
+        y_pred_knowns = pred
+        y_true_knowns = y_knowns
+        y_pred_cand = pred
+        y_true_cand = y_candidates
+
+    if metric.upper() == 'RECALL':
+        rec_known = recall_score(y_pred=y_pred_knowns[colname] >= cutoff, y_true=y_true_knowns)
+        rec_cand = recall_score(y_pred=y_pred_cand[colname] >= cutoff, y_true=y_true_cand)
+        return rec_known, rec_cand
+    elif metric.upper() == 'PRECISION':
+        prec_known = precision_score(y_pred=y_pred_knowns[colname] >= cutoff, y_true=y_true_knowns)
+        prec_cand = precision_score(y_pred=y_pred_cand[colname] >= cutoff, y_true=y_true_cand)
+        return prec_known, prec_cand
+    elif metric.upper() == 'AUPR':
+        aupr_known = average_precision_score(y_score=y_pred_knowns[colname], y_true=y_true_knowns)
+        aupr_cand = average_precision_score(y_score=y_pred_cand[colname], y_true=y_true_cand)
+        return aupr_known, aupr_cand
+    elif metric.upper() == 'F1':
+        f1_known = f1_score(y_pred=y_pred_knowns[colname] >= cutoff, y_true=y_true_knowns)
+        f1_cand = f1_score(y_pred=y_pred_cand[colname] >= cutoff, y_true=y_true_cand)
+        return f1_known, f1_cand
+
+
 def get_all_cancer_gene_sets(ncg_path, oncoKB_path, baileyetal_path, ongene_path):
     """Return all cancer gene sets that we use.
 

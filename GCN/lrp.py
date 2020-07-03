@@ -38,6 +38,7 @@ class LRP:
         """
         # required files and folders
         self.model_dir = model_dir
+        os.chdir(model_dir) # when the data is relative to the model
         self.out_dir = os.path.join(model_dir, 'lrp_sigmoid')
         self.params_file = os.path.join(model_dir, 'hyper_params.txt')
         self.predictions_file = os.path.join(model_dir, 'ensemble_predictions.tsv')
@@ -250,9 +251,15 @@ class LRP:
         idx_top = idx_top[np.argsort(sums[idx_top])][::-1]
         x = np.arange(top_n)
         x_labels = [self.node_names[i] for i in idx_top]
+        #for i, gene in enumerate(x_labels): # don't show gene itself
+        #    if gene == gene_name:
+        #        x = np.arange(top_n - 1)
+        #        idx_top = np.delete(idx_top, i)
+        #        x_labels = [self.node_names[i] for i in idx_top]
+        #        break
         ax = plt.Subplot(fig, outer_grid[2])
         ax.bar(x, sums[idx_top], tick_label=x_labels)
-        ax.set_ylabel("LRP sum features")
+        ax.set_ylabel(None)
         for i, gene in enumerate(x_labels):
             if gene == gene_name:
                 ax.get_xticklabels()[i].set_color("blue")
