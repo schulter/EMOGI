@@ -19,6 +19,10 @@ For plotting and correct functioning of all the notebooks, you additionally migh
 * Goatools (for pathway enrichment)
 * UMAP (for dimension reduction)
 
+## Using Existing Models
+The models that we used in the paper can be downloaded at: http://owww.molgen.mpg.de/~sasse/EMOGI/.
+Those models can be used to compute LRP contributions and plots like performance comparisons can be done using the postprocessing script in the EMOGI directory.
+
 ## Computing Contributions for Genes of Interest
 A trained EMOGI model can be interrogated in a gene-wise fashion to find out why the algorithm considered a gene a cancer gene or not.
 To compute the feature and interaction partner contributions for a gene of interest, use:
