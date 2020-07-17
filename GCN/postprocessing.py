@@ -33,6 +33,14 @@ plt.rc('font', family='Times New Roman')
 np.set_printoptions(suppress=True)
 pd.set_option('display.float_format', lambda x: '%.3f' % x)
 
+# PATHS TO DATASETS AND COMPETING METHODS
+PATH_NCG = '../data/pancancer/NCG/cancergenes_list.txt'
+PATH_ONCOKB = '../data/pancancer/oncoKB/cancerGeneList.txt'
+PATH_COMPCHARACDRIVERS = '../data/pancancer/comprehensive_characterization_of_cancer_driver_genes_and_mutations/comprehensive_characterization_cancer_genes.csv'
+PATH_ONGENE = '../data/pancancer/ongene_tsgene/Human_Oncogenes.txt'
+PATH_DEEPWALK = '../data/pancancer/deepWalk_results/{}_embedding_CPDBparams.embedding'
+PATH_HOTNET2_HEAT = '../data/pancancer/hotnet2/heat_syn_cnasnv.json'
+PATH_MUTSIGCV = '../data/pancancer/mutsigcv/mutsigcv_genescores.csv'
 
 def get_training_data(training_dir):
     """Load data from a EMOGI trained model.
@@ -61,7 +69,7 @@ def get_training_data(training_dir):
                 assert (f.split('_')[0].upper() == network_name)
         fname = '{}_{}.h5'.format(network_name, training_dir.strip('/').split('/')[-1])
         data_file = os.path.join(data_file, fname)
-    data = gcnIO.load_hdf_data(data_file)
+    data = gcnIO.load_hdf_data(os.path.join(training_dir, data_file))
     return data
 
 
@@ -195,28 +203,49 @@ def get_all_cancer_gene_sets(ncg_path, oncoKB_path, baileyetal_path, ongene_path
     ONGene.
     """
     # get the NCG cancer genes
-    known_cancer_genes = []
-    candidate_cancer_genes = []
-    n = 0
-    with open(ncg_path, 'r') as f:
-        for line in f.readlines():
-            n += 1
-            if n == 1:
-                continue
-            l = line.strip().split('\t')
-            if len(l) == 2:
-                known_cancer_genes.append(l[0])
-                candidate_cancer_genes.append(l[1])
-            else:
-                candidate_cancer_genes.append(l[0])
+    if os.path.exists(ncg_path):
+        known_cancer_genes = []
+        candidate_cancer_genes = []
+        n = 0
+        with open(ncg_path, 'r') as f:
+            for line in f.readlines():
+                n += 1
+                if n == 1:
+                    continue
+                l = line.strip().split('\t')
+                if len(l) == 2:
+                    known_cancer_genes.append(l[0])
+                    candidate_cancer_genes.append(l[1])
+                else:
+                    candidate_cancer_genes.append(l[0])
+    else:
+        print ("Path to NCG cancer genes does not exist ({}). Will continue with empty list.".format(ncg_path))
+        known_cancer_genes = []
+        candidate_cancer_genes = []
+
     # OncoKB
-    oncokb_genes = pd.read_csv(oncoKB_path, sep='\t')
-    oncokb_highconf = oncokb_genes[oncokb_genes['# of occurrence within resources (Column D-J)'] >= 3]['Hugo Symbol']
+    if os.path.exists(oncoKB_path):
+        oncokb_genes = pd.read_csv(oncoKB_path, sep='\t')
+        oncokb_highconf = oncokb_genes[oncokb_genes['# of occurrence within resources (Column D-J)'] >= 3]['Hugo Symbol']
+    else:
+        print ("Path to OncoKB cancer genes does not exist ({}). Will continue with empty list.".format(oncoKB_path))
+        oncokb_highconf = []
+
     # comprehensive characterization paper genes
-    cancer_genes_paper = pd.read_csv(baileyetal_path, sep='\t', header=3)
-    cancer_genes_paper = pd.Series(cancer_genes_paper.Gene.unique())
+    if os.path.exists(baileyetal_path):
+        cancer_genes_paper = pd.read_csv(baileyetal_path, sep='\t', header=3)
+        cancer_genes_paper = pd.Series(cancer_genes_paper.Gene.unique())
+    else:
+        print ("Path to Bailey et al. genes does not exist ({}). Will continue with empty list.".format(baileyetal_path))
+        cancer_genes_paper = []
+
     # OnGene
-    oncogenes = pd.read_csv(ongene_path, sep='\t').OncogeneName
+    if os.path.exists(ongene_path):
+        oncogenes = pd.read_csv(ongene_path, sep='\t').OncogeneName
+    else:
+        print ("Path to ONGene genes does not exist ({}). Will continue with empty list.".format(ongene_path))
+        oncogenes = []
+
     return known_cancer_genes, candidate_cancer_genes, oncokb_highconf, cancer_genes_paper, oncogenes
 
 
@@ -230,18 +259,7 @@ def compute_ensemble_predictions(model_dir, comprehensive=False):
     ----------
     model_dir:                  The output directory of the GCN training
     """
-    args, data_file = gcnIO.load_hyper_params(model_dir)
-    if os.path.isdir(data_file): # FIXME: This is hacky and not guaranteed to work at all!
-        network_name = None
-        for f in os.listdir(data_file):
-            if network_name is None:
-                network_name = f.split('_')[0].upper()
-            else:
-                assert (f.split('_')[0].upper() == network_name)
-        fname = '{}_{}.h5'.format(network_name, model_dir.strip('/').split('/')[-1])
-        data_file = os.path.join(data_file, fname)
-
-    data = gcnIO.load_hdf_data(data_file)
+    data = get_training_data(model_dir)
     network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feat_names = data
     pred_all = []
     sets_all = []
@@ -273,10 +291,10 @@ def compute_ensemble_predictions(model_dir, comprehensive=False):
     ensemble_predictions['Std_Pred'] = ensemble_predictions[number_cols].std(axis=1)
 
     if comprehensive: # enrich with database knowledge on cancer gene sets
-        cancer_gene_sets = get_all_cancer_gene_sets(ncg_path='../data/pancancer/NCG/cancergenes_list.txt',
-                                                    oncoKB_path='../data/pancancer/oncoKB/cancerGeneList.txt',
-                                                    baileyetal_path='../data/pancancer/comprehensive_characterization_of_cancer_driver_genes_and_mutations/comprehensive_characterization_cancer_genes.csv',
-                                                    ongene_path='../data/pancancer/ongene_tsgene/Human_Oncogenes.txt')
+        cancer_gene_sets = get_all_cancer_gene_sets(ncg_path=PATH_NCG,
+                                                    oncoKB_path=PATH_ONCOKB,
+                                                    baileyetal_path=PATH_COMPCHARACDRIVERS,
+                                                    ongene_path=PATH_ONGENE)
         ncg_knowns = cancer_gene_sets[0]
         ncg_candidates = cancer_gene_sets[1]
         oncoKB_genes = cancer_gene_sets[2]
@@ -437,23 +455,17 @@ def compute_predictions_competitors(model_dir, network_name, network_measures=Fa
 
     This function 
     """
-    # load data
-    _, data_file = gcnIO.load_hyper_params(model_dir)
-    if os.path.isdir(data_file): # FIXME: This is hacky and not guaranteed to work at all!
-        network_name = None
-        for f in os.listdir(data_file):
-            if network_name is None:
-                network_name = f.split('_')[0].upper()
-            else:
-                assert (f.split('_')[0].upper() == network_name)
-        fname = '{}_{}.h5'.format(network_name, model_dir.strip('/').split('/')[-1])
-        data_file = os.path.join(data_file, fname)
-    data = gcnIO.load_hdf_data(data_file)
+    data = get_training_data(model_dir)
     network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feat_names = data
     features = features.reshape(features.shape[0], -1) # flatten 3D features
 
+    # where we will store the results
+    all_predictions = pd.DataFrame(node_names, columns=['ID', 'Name']).set_index('Name')
+
     # read predictions for EMOGI
     predictions = load_predictions(model_dir)
+    predictions_emogi = predictions.set_index('Name').reindex(all_predictions.index)
+    all_predictions['EMOGI'] = predictions_emogi.Prob_pos
 
     # prepare the features for easy usage of scikit learn API
     X_train = features[train_mask.astype(np.bool)]
@@ -472,6 +484,8 @@ def compute_predictions_competitors(model_dir, network_name, network_measures=Fa
         compute_degree_correlation(model_dir, pd.Series(pred_rf_all[:, 1], index=node_names[:, 1]),
                                 os.path.join(model_dir, 'corr_RF_degree.svg')
         )
+    all_predictions['Random_Forest'] = pred_rf_all[:, 1]
+
     # compute performance for network measures
     if network_measures:
         G = nx.from_pandas_adjacency(pd.DataFrame(network, index=node_names[:, 1],
@@ -506,7 +520,12 @@ def compute_predictions_competitors(model_dir, network_name, network_measures=Fa
                                 os.path.join(model_dir, 'corr_betweenness_degree.svg')
             )
         bn_baseline = nodes_with_bn[test_mask.astype(np.bool)].Betweenness
-
+        
+        # add results of the network measures
+        all_predictions['Degree'] = node_degree
+        all_predictions['Core'] = nodes_with_core.Core
+        all_predictions['Clustering_Coeff'] = nodes_with_cc.Clustering_Coeff
+        all_predictions['Betweenness'] = nodes_with_bn.Betweenness
         """
         tr_idx = np.logical_or(y_train.reshape(-1), y_val.reshape(-1))
         c_idx = np.logical_or(tr_idx, y_test.reshape(-1))
@@ -535,46 +554,24 @@ def compute_predictions_competitors(model_dir, network_name, network_measures=Fa
     if verbose: print ("LogReg predicts {} genes in total".format(np.argmax(pred_lr_all, axis=1).sum()))
 
     # train SVM on deepWalk embeddings
-    fname_dw = '../data/pancancer/deepWalk_results/{}_embedding_CPDBparams.embedding'.format(network_name.upper())
-    deepwalk_embeddings = pd.read_csv(fname_dw, header=None, skiprows=1, sep=' ')
-    deepwalk_embeddings.columns = ['Node_Id'] + deepwalk_embeddings.columns[1:].tolist()
-    deepwalk_embeddings.set_index('Node_Id', inplace=True)
-    n_df = pd.DataFrame(node_names, columns=['ID', 'Name'])
-    embedding_with_names = deepwalk_embeddings.join(n_df)
-    X_dw = embedding_with_names.set_index('Name').reindex(n_df.Name).drop('ID', axis=1)
-    X_train_dw = X_dw[train_mask.astype(np.bool)]
-    X_test_dw = X_dw[test_mask.astype(np.bool)]
-    clf_dw = SVC(kernel='rbf', class_weight='balanced', probability=True, gamma='auto')
-    clf_dw.fit(X_train_dw, y_train_svm.reshape(-1))
-    pred_deepwalk_all = clf_dw.predict_proba(X_dw)
-    if plot_correlations:
-        compute_degree_correlation(model_dir, pd.Series(pred_deepwalk_all[:, 1], index=node_names[:, 1]),
-                                os.path.join(model_dir, 'corr_deepwalk_degree.svg')
-        )
-
-    # load results from graph attention networks (GAT)
-    if network_name.upper() == 'CPDB':
-        gat_results = np.load('../data/pancancer/gat_results/results_GAT_CPDB.npy')
-    elif network_name.upper() == 'IREF':
-        gat_results = np.load('../data/pancancer/gat_results/results_GAT_IREF.npy')
-    elif network_name.upper() == 'MULTINET':
-        gat_results = np.load('../data/pancancer/gat_results/results_GAT_MULTINET.npy')
-    elif network_name.upper() == 'STRING':
-        gat_results = np.load('../data/pancancer/gat_results/results_GAT_STRING.npy')
-    elif network_name.upper() == 'IREFNEW':
-        gat_results = np.load('../data/pancancer/gat_results/results_GAT_IREFNEW.npy')
-    elif network_name.upper() == 'PCNET':
-        gat_results = np.load('../data/pancancer/gat_results/results_GAT_PCNET.npy')
-    else:
-        gat_results = None
-        print ("Network {} not recognized for GAT performance.".format(network_name))
-    if not gat_results is None:
-        gat_results = gat_results.reshape(gat_results.shape[1], gat_results.shape[2])
+    fname_dw = PATH_DEEPWALK.format(network_name.upper())
+    if os.path.exists(fname_dw):
+        deepwalk_embeddings = pd.read_csv(fname_dw, header=None, skiprows=1, sep=' ')
+        deepwalk_embeddings.columns = ['Node_Id'] + deepwalk_embeddings.columns[1:].tolist()
+        deepwalk_embeddings.set_index('Node_Id', inplace=True)
+        n_df = pd.DataFrame(node_names, columns=['ID', 'Name'])
+        embedding_with_names = deepwalk_embeddings.join(n_df)
+        X_dw = embedding_with_names.set_index('Name').reindex(n_df.Name).drop('ID', axis=1)
+        X_train_dw = X_dw[train_mask.astype(np.bool)]
+        X_test_dw = X_dw[test_mask.astype(np.bool)]
+        clf_dw = SVC(kernel='rbf', class_weight='balanced', probability=True, gamma='auto')
+        clf_dw.fit(X_train_dw, y_train_svm.reshape(-1))
+        pred_deepwalk_all = clf_dw.predict_proba(X_dw)
         if plot_correlations:
-            compute_degree_correlation(model_dir, pd.Series(gat_results[:, 1], index=node_names[:, 1]),
-                                    os.path.join(model_dir, 'corr_GAT_degree.svg')
+            compute_degree_correlation(model_dir, pd.Series(pred_deepwalk_all[:, 1], index=node_names[:, 1]),
+                                    os.path.join(model_dir, 'corr_deepwalk_degree.svg')
             )
-
+        all_predictions['DeepWalk'] = pred_deepwalk_all[:, 1]
 
     # train pagerank on the network
     scores, names = pagerank.pagerank(network, node_names)
@@ -590,60 +587,47 @@ def compute_predictions_competitors(model_dir, network_name, network_measures=Fa
         )
     pr_pred_test = pr_pred_all[pr_pred_all.index.isin(node_names[test_mask == 1, 1])]
     pr_pred_test.drop_duplicates(inplace=True)
+    all_predictions['PageRank'] = pr_pred_all.Score
 
     # do a random walk with restart and use HotNet2 heat as p_0
-    # read heat json from file
-    heat_df = pd.read_json('../../hotnet2/heat_syn_cnasnv.json').drop('parameters', axis=1)
-    heat_df.dropna(axis=0, inplace=True)
-    # join with node names to get correct order and only genes present in network
-    nn = pd.DataFrame(node_names, columns=['ID', 'Name'])
-    heat_df = nn.merge(heat_df, left_on='Name', right_index=True, how='left')
-    heat_df.fillna(0, inplace=True)
+    if os.path.exists(PATH_HOTNET2_HEAT):
+        # read heat json from file
+        heat_df = pd.read_json(PATH_HOTNET2_HEAT).drop('parameters', axis=1)
+        heat_df.dropna(axis=0, inplace=True)
+        # join with node names to get correct order and only genes present in network
+        nn = pd.DataFrame(node_names, columns=['ID', 'Name'])
+        heat_df = nn.merge(heat_df, left_on='Name', right_index=True, how='left')
+        heat_df.fillna(0, inplace=True)
 
-    # add normalized heat
-    heat_df['heat_norm'] = heat_df.heat / heat_df.heat.sum()
-    p_0 = heat_df.heat_norm
-    #p_0 = features.mean(axis=1)
-    beta = 0.3
-    W = network / network.sum(axis=0) # normalize A
-    np.nan_to_num(W, copy=False)
-    #assert (np.allclose(W.sum(axis=0), 1)) # assert that rows/cols sum to 1
-    p = np.linalg.inv(beta * (np.eye(network.shape[0]) - (1 - beta) * W)).dot(np.array(p_0))
-    heat_df['rwr_score'] = p
-    if plot_correlations:
-        compute_degree_correlation(model_dir, heat_df.set_index('Name').rwr_score,
-                                os.path.join(model_dir, 'corr_rwr_degree.svg')
-        )
+        # add normalized heat
+        heat_df['heat_norm'] = heat_df.heat / heat_df.heat.sum()
+        p_0 = heat_df.heat_norm
+        #p_0 = features.mean(axis=1) # if one wants to use that instead of the HotNet2 heat
+        beta = 0.3
+        W = network / network.sum(axis=0) # normalize A
+        np.nan_to_num(W, copy=False)
+        #assert (np.allclose(W.sum(axis=0), 1)) # assert that rows/cols sum to 1
+        p = np.linalg.inv(beta * (np.eye(network.shape[0]) - (1 - beta) * W)).dot(np.array(p_0))
+        heat_df['rwr_score'] = p
+        if plot_correlations:
+            compute_degree_correlation(model_dir, heat_df.set_index('Name').rwr_score,
+                                    os.path.join(model_dir, 'corr_rwr_degree.svg')
+            )
+        all_predictions['RWR'] = p
 
 
     # use MutSigCV -log10 q-values for evaluation of that method
-    mutsigcv_scores = pd.read_csv('../data/pancancer/mutsigcv/mutsigcv_genescores.csv',
-                                  index_col=0, sep='\t').mean(axis=1)
-    nodes = pd.DataFrame(node_names, columns=['ID', 'Name']).set_index('ID')
-    mutsigcv_scores_filled = mutsigcv_scores.reindex(nodes.Name).fillna(0)
-    if plot_correlations:
-        compute_degree_correlation(model_dir, mutsigcv_scores_filled,
-                                os.path.join(model_dir, 'corr_mutsigcv_degree.svg')
-        )
+    if os.path.exists(PATH_MUTSIGCV):
+        mutsigcv_scores = pd.read_csv(PATH_MUTSIGCV,
+                                      index_col=0, sep='\t').mean(axis=1)
+        nodes = pd.DataFrame(node_names, columns=['ID', 'Name']).set_index('ID')
+        mutsigcv_scores_filled = mutsigcv_scores.reindex(nodes.Name).fillna(0)
+        if plot_correlations:
+            compute_degree_correlation(model_dir, mutsigcv_scores_filled,
+                                    os.path.join(model_dir, 'corr_mutsigcv_degree.svg')
+            )
+        all_predictions['MutSigCV'] = mutsigcv_scores_filled
     
-    # we have predictions for all tools, make it dataframes to return
-    all_predictions = pd.DataFrame(node_names, columns=['ID', 'Name']).set_index('Name')
-    all_predictions['Random_Forest'] = pred_rf_all[:, 1]
-    predictions_emogi = predictions.set_index('Name').reindex(all_predictions.index)
-    all_predictions['EMOGI'] = predictions_emogi.Prob_pos
-    #all_predictions['Log_Reg'] = pred_lr_all[:, 1]
-    all_predictions['PageRank'] = pr_pred_all.Score
-    all_predictions['RWR'] = p
-    all_predictions['MutSigCV'] = mutsigcv_scores_filled
-    #all_predictions['GAT'] = gat_results[:, 1]
-    all_predictions['DeepWalk'] = pred_deepwalk_all[:, 1]
-
-    if network_measures:
-        all_predictions['Degree'] = node_degree
-        all_predictions['Core'] = nodes_with_core.Core
-        all_predictions['Clustering_Coeff'] = nodes_with_cc.Clustering_Coeff
-        all_predictions['Betweenness'] = nodes_with_bn.Betweenness
-
     return all_predictions, all_predictions[test_mask.astype(np.bool)]
 
 
@@ -678,18 +662,7 @@ def compute_ROC_PR_competitors(model_dir, network_name, network_measures=False, 
     Two scalar values representing the optimal cutoff according to the ROC
     curve and according to the PR curve, respectively.
     """
-    # first, get the data from the container
-    _, data_file = gcnIO.load_hyper_params(model_dir)
-    if os.path.isdir(data_file): # FIXME: This is hacky and not guaranteed to work at all!
-        network_name = None
-        for f in os.listdir(data_file):
-            if network_name is None:
-                network_name = f.split('_')[0].upper()
-            else:
-                assert (f.split('_')[0].upper() == network_name)
-        fname = '{}_{}.h5'.format(network_name, model_dir.strip('/').split('/')[-1])
-        data_file = os.path.join(data_file, fname)
-    data = gcnIO.load_hdf_data(data_file)
+    data = get_training_data(model_dir)
     network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feat_names = data
     features = features.reshape(features.shape[0], -1) # flatten 3D features
 
@@ -721,9 +694,10 @@ def compute_ROC_PR_competitors(model_dir, network_name, network_measures=False, 
 
     roc_results_testset = []
     for name, colname in methods:
-        fpr, tpr, thresholds = roc_curve(y_true=y_true, y_score=test_predictions[colname])
-        roc_auc = roc_auc_score(y_true=y_true, y_score=test_predictions[colname])
-        roc_results_testset.append((name, roc_auc, fpr, tpr, thresholds))
+        if colname in test_predictions.columns:
+            fpr, tpr, thresholds = roc_curve(y_true=y_true, y_score=test_predictions[colname])
+            roc_auc = roc_auc_score(y_true=y_true, y_score=test_predictions[colname])
+            roc_results_testset.append((name, roc_auc, fpr, tpr, thresholds))
     
     # plot ROC curve
     fig = plt.figure(figsize=(14, 8))
@@ -750,9 +724,10 @@ def compute_ROC_PR_competitors(model_dir, network_name, network_measures=False, 
 
     pr_results_testset = []
     for name, colname in methods:
-        pr, rec, thresholds = precision_recall_curve(y_true=y_true, probas_pred=test_predictions[colname])
-        aupr = average_precision_score(y_true=y_true, y_score=test_predictions[colname])
-        pr_results_testset.append((name, aupr, pr, rec, thresholds))
+        if colname in test_predictions.columns:
+            pr, rec, thresholds = precision_recall_curve(y_true=y_true, probas_pred=test_predictions[colname])
+            aupr = average_precision_score(y_true=y_true, y_score=test_predictions[colname])
+            pr_results_testset.append((name, aupr, pr, rec, thresholds))
 
     # plot PR curve
     fig = plt.figure(figsize=(14, 8))
@@ -797,21 +772,10 @@ def load_predictions(model_dir):
     Number of positive predictions, mean probability to be positive and
     standard deviation) for each gene.
     """
-    # first, get the data from the container
-    args, data_file = gcnIO.load_hyper_params(model_dir)
-    if os.path.isdir(data_file): # FIXME: This is hacky and not guaranteed to work at all!
-        network_name = None
-        for f in os.listdir(data_file):
-            if network_name is None:
-                network_name = f.split('_')[0].upper()
-            else:
-                assert (f.split('_')[0].upper() == network_name)
-        fname = '{}_{}.h5'.format(network_name, model_dir.strip('/').split('/')[-1])
-        data_file = os.path.join(data_file, fname)
-    data = gcnIO.load_hdf_data(data_file)
+    data = get_training_data(model_dir)
     network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feat_names = data
 
-    # read predictions, too. Raise error when they are not present
+    # read predictions, too
     if not os.path.isfile(os.path.join(model_dir, 'ensemble_predictions.tsv')):
         print ("Ensemble predictions not found. Calculating...")
         compute_ensemble_predictions(model_dir)
@@ -897,8 +861,7 @@ def compute_degree_correlation(model_dir, predictions, out_file):
     The pearson correlation coefficient between the node degree and the output
     probability of the tool.
     """
-    args, data_file = gcnIO.load_hyper_params(model_dir)
-    data = gcnIO.load_hdf_data(data_file)
+    data = get_training_data(model_dir)
     network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feat_names = data
     node_degree = pd.DataFrame(network.sum(axis=1), index=node_names[:, 1], columns=['Degree'])
     p = predictions.reindex(node_degree.index).dropna()
@@ -923,7 +886,7 @@ def plot_correlation(series_1, series_2, xlabel, ylabel, out_path, title=None):
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Post-process a GCN training by plotting various performance metrics.')
-    parser.add_argument('-d', '--dir', help='Training directory',
+    parser.add_argument('-m', '--model_dir', help='Model training directory',
                         dest='train_dir',
                         required=True,
                         type=str
@@ -933,7 +896,7 @@ def parse_args():
                         required=True,
                         type=str
                         )
-    parser.add_argument('-m', '--include_network_measures',
+    parser.add_argument('-nm', '--include_network_measures',
                         help='Whether or not to include network measures like degree or centrality',
                         dest='network_measures',
                         required=False,
@@ -954,63 +917,21 @@ def postprocessing(model_dir, network_name, include_network_measures=False):
     compute_average_PR_curve(model_dir, all_preds, all_sets)
     best_thr_roc, best_thr_pr = compute_ROC_PR_competitors(model_dir, network_name,
                                                            include_network_measures)
-
-    # get the data from hdf5 container
-    args, data_file = gcnIO.load_hyper_params(model_dir)
-    if os.path.isdir(data_file): # FIXME: This is hacky and not guaranteed to work at all!
-        network_name = None
-        for f in os.listdir(data_file):
-            if network_name is None:
-                network_name = f.split('_')[0].upper()
-            else:
-                assert (f.split('_')[0].upper() == network_name)
-        fname = '{}_{}.h5'.format(network_name, model_dir.strip('/').split('/')[-1])
-        data_file = os.path.join(data_file, fname)
-
-    data = gcnIO.load_hdf_data(data_file)
+    data = get_training_data(model_dir)
     network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feat_names = data
     nodes = pd.DataFrame(node_names, columns=['ID', 'Name'])
     nodes['label'] = np.logical_or(np.logical_or(y_train, y_test), y_val)
 
-    # get the NCG cancer genes
-    known_cancer_genes = []
-    candidate_cancer_genes = []
-    n = 0
-    with open('../data/pancancer/NCG/cancergenes_list.txt', 'r') as f:
-        for line in f.readlines():
-            n += 1
-            if n == 1:
-                continue
-            l = line.strip().split('\t')
-            if len(l) == 2:
-                known_cancer_genes.append(l[0])
-                candidate_cancer_genes.append(l[1])
-            else:
-                candidate_cancer_genes.append(l[0])
-    known_cancer_genes_innet = nodes[nodes.Name.isin(known_cancer_genes)].Name
-    candidate_cancer_genes_innet = nodes[nodes.Name.isin(candidate_cancer_genes)].Name
-
-    # get blood cancer genes
-    cgc = pd.read_csv('../data/pancancer/cosmic/cancer_gene_census.csv')
-    cgc.dropna(subset=['Tissue Type'], inplace=True)
-    # find blood cancer genes based on these abbreviations (E=Epithelial, M=Mesenchymal, O=Other, L=Leukaemia/lymphoma)
-    pattern = '|'.join(['E', 'O', 'M', 'E;'])
-    non_blood_cancer_genes = cgc[cgc['Tissue Type'].str.contains(pattern)]
-    blood_cancer_genes = cgc[~cgc['Tissue Type'].str.contains(pattern)]
-    known_cancer_genes_innet_noblood = non_blood_cancer_genes[non_blood_cancer_genes['Gene Symbol'].isin(known_cancer_genes_innet)]['Gene Symbol']
-    known_cancer_genes_innet_blood = blood_cancer_genes[blood_cancer_genes['Gene Symbol'].isin(known_cancer_genes_innet)]['Gene Symbol']
-
     # compute the Venn diagrams
-    compute_overlap(model_dir, 'overlap_NCG.svg',
-                    known_cancer_genes_innet, candidate_cancer_genes_innet,
-                    best_thr_pr,
+    kcgs, ccgs, _, _, _ = get_all_cancer_gene_sets(ncg_path=PATH_NCG, 
+                                                   oncoKB_path=PATH_ONCOKB,
+                                                   baileyetal_path=PATH_COMPCHARACDRIVERS,
+                                                   ongene_path=PATH_ONGENE
+                                                  )
+    compute_overlap(model_dir, 'overlap_NCG.svg', kcgs, ccgs, best_thr_pr,
                     ['Known Cancer Genes\n(NCG)', 'Candidate Cancer Genes\n(NCG)']
     )
-    compute_overlap(model_dir, 'overlap_leukemia_genes.svg',
-                               known_cancer_genes_innet_blood, known_cancer_genes_innet_noblood,
-                               best_thr_pr,
-                               ['Leukemia Genes', 'Non-Leukemia Genes']
-                              )
+
 
 if __name__ == "__main__":
     args = parse_args()
