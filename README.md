@@ -1,6 +1,8 @@
 # EMOGI: Explainable Multi-Omics Graph Integration
 This project predicts cancer genes based on multi-omics feature vectors and protein-protein interactions. Each gene is a data point/node and semi-supervised graph convolutional networks are used for classifying cancer genes.
 
+[![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+
 ## Using EMOGI with Existing Models
 The models that we used in the paper can be downloaded at: http://owww.molgen.mpg.de/~sasse/EMOGI/.
 Those models can be used to compute LRP contributions and plots like performance comparisons can be done using the postprocessing script in the EMOGI directory.
