@@ -1,0 +1,17 @@
+id	filename	md5	size	state
+0458c57f-316c-4a7c-9294-ccd11c97c2f9	TCGA.LUAD.mutect.0458c57f-316c-4a7c-9294-ccd11c97c2f9.DR-10.0.somatic.maf.gz	fd7e2e6086332b2152626264ab6d6d5d	50299539	released
+faa5f62a-2731-4867-a264-0e85b7074e87	TCGA.READ.mutect.faa5f62a-2731-4867-a264-0e85b7074e87.DR-10.0.somatic.maf.gz	df0e6a7404d13a4b3f80a350c4582eff	15185535	released
+d3fa70be-520a-420e-bb6d-651aeee5cb50	TCGA.UCEC.mutect.d3fa70be-520a-420e-bb6d-651aeee5cb50.DR-10.0.somatic.maf.gz	379907520faed335990cd27dae895559	194842948	released
+c06465a3-50e7-46f7-b2dd-7bd654ca206b	TCGA.STAD.mutect.c06465a3-50e7-46f7-b2dd-7bd654ca206b.DR-10.0.somatic.maf.gz	e0462a747a83d3f09abb28b83c1b634e	54560201	released
+deca36be-bf05-441a-b2e4-394228f23fbe	TCGA.PRAD.mutect.deca36be-bf05-441a-b2e4-394228f23fbe.DR-10.0.somatic.maf.gz	ec67ca9281d9cc167d9a3ea0f54df141	7615526	released
+2a8f2c83-8b5e-4987-8dbf-01f7ee24dc26	TCGA.KIRC.mutect.2a8f2c83-8b5e-4987-8dbf-01f7ee24dc26.DR-10.0.somatic.maf.gz	81b35a38974f46f5d22a5d1444bb0790	7119265	released
+5ffa70b1-61b4-43d1-b10a-eda412187c17	TCGA.CESC.mutect.5ffa70b1-61b4-43d1-b10a-eda412187c17.DR-10.0.somatic.maf.gz	8f32b2421ca4444a2600cc8e15446778	24843170	released
+95258183-63ea-4c97-ae29-1bae9ed06334	TCGA.LUSC.mutect.95258183-63ea-4c97-ae29-1bae9ed06334.DR-10.0.somatic.maf.gz	bb40da1be5f7fefde818a329cc0048ec	44346082	released
+03652df4-6090-4f5a-a2ff-ee28a37f9301	TCGA.COAD.mutect.03652df4-6090-4f5a-a2ff-ee28a37f9301.DR-10.0.somatic.maf.gz	12682ee538c2caf96e3ca77c7d000b89	65594046	released
+13999735-2e70-439f-a6d9-45d831ba1a1a	TCGA.THCA.mutect.13999735-2e70-439f-a6d9-45d831ba1a1a.DR-10.0.somatic.maf.gz	56f8bf514e38d6d871ed70fc6dcf8a3d	2891360	released
+995c0111-d90b-4140-bee7-3845436c3b42	TCGA.BRCA.mutect.995c0111-d90b-4140-bee7-3845436c3b42.DR-10.0.somatic.maf.gz	4a00a1c3611c2ddcb2eed684c451eea7	31058116	released
+1aa33f25-3893-4f37-a6a4-361c9785d07e	TCGA.HNSC.mutect.1aa33f25-3893-4f37-a6a4-361c9785d07e.DR-10.0.somatic.maf.gz	03eec1f744c029418969a213d8ccc548	25886548	released
+1ab98b62-5863-4440-84f9-3c15d476d523	TCGA.KIRP.mutect.1ab98b62-5863-4440-84f9-3c15d476d523.DR-10.0.somatic.maf.gz	7c5dfe3136824b6421f57c4a0370583b	6341025	released
+0e239d8f-47b0-4e47-9716-e9ecc87605b9	TCGA.BLCA.mutect.0e239d8f-47b0-4e47-9716-e9ecc87605b9.DR-10.0.somatic.maf.gz	d872d906b62c6617c0afa4e32dcbe32d	34215484	released
+a630f0a0-39b3-4aab-8181-89c1dde8d3e2	TCGA.LIHC.mutect.a630f0a0-39b3-4aab-8181-89c1dde8d3e2.DR-10.0.somatic.maf.gz	e9ccad73e077c1653b3f5e5d381756bd	13824544	released
+7f8e1e7c-621c-4dfd-8fad-af07c739dbfc	TCGA.ESCA.mutect.7f8e1e7c-621c-4dfd-8fad-af07c739dbfc.DR-10.0.somatic.maf.gz	6f0349b5ee9bb30a7216631da78308df	11164950	released
