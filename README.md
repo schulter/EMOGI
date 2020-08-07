@@ -13,7 +13,9 @@ python lrp.py -m <path-to-model-directory> -g <hugo-symbol1> <hugo-symbol2> -b T
 ```
 The genes have to be provided as hugo gene symbols, eg. `EGFR` or `BRCA1`. The `-b` option controls if the resulting plots are heatmaps (more compact, as shown in the paper) or more informative barplots whose error bars indicate standard deviation across cross-validation runs.
 Finally, to compute the contributions for all genes (~13,000 to 15,000 depending on the PPI network used), you can specify the `-a` option. This will take a long time, however, and uses all available cores.
-
+The output consists of a pdf file, displaying the multi-omics input feature vector, LRP feature contributions, the most important LRP interaction partner contributions and the multi-omics contributions of the three most important interaction partners for the gene of interest. The multi-omics contributions from the interaction partners are still from the point of view of the gene of interest and indicate that a certain omics feature in a cancer type *of an interacting gene* was important for the classification of the gene of interest.
+A second file contains an edgelist file of interaction partners of the gene of interest, readable in Cytoscape or similar programs.
+Run time for a single gene on a computer with 
 *Note: The LRP script is often better not executed on GPU because it doesn't benefit from it and uses a lot of space.*
 
 ## Training EMOGI with Your Own Data
@@ -21,15 +23,30 @@ To train EMOGI with your own data, you have to provide a [HDF5](https://www.h5py
 
 Once you obtained a valid HDF5 container, you can simply train EMOGI with
 ```
-python train_cv.py -d <path-to-hdf5-container> -hd <n_filters_layer1> <n_filters_layer2>
+python train_EMOGI_cv.py -d <path-to-hdf5-container> -hd <n_filters_layer1> <n_filters_layer2>
 ```
 where the `-hd` argument specifies the number of graph convolutional layers (the number of arguments) and the number of filters per layer. Training with `-hd 100 50` for instance implies that EMOGI is trained with 2 graph convolutional layers with 100 and 50 filters.
+
+In case you want to only train a single model without cross-validation, you can use `train_EMOGI.py` instead with similar parameters. Use the `--help` option for an overview of parameters for training.
+
+For the perturbation experiments in the paper, we used the `train_all_omics.py` script which essentially trains EMOGI models with the same hyper-parameters on a directory of HDF5 containers. See again the `help` option or the other training scripts for details on the parameters.
+
+To conduct a gridsearch to find suitable combinations of hyper-parameters, use the `gridsearch.py` script but note, that the combinations are hard-coded into the python file. Other than that, the script should be fairly easy to use. Furthermore, [this](analysis/evaluate_gridsearch.ipynb) notebook contains  basic analysis to choose a good setting from a successful gridsearch.
+
+To produce basic plots of performance, a prediction for every gene and a comparison with the competing methods, run the `postprocessing.py` script:
+```
+python postprocessing.py -m <path-to-model-directory> -n <name-of-ppi-network> -nm True/False
+```
+The name of the PPI network can be any of `CPDB`, `Multinet`, `PCNet`, `STRING`, `IRef` or `IRefNew` and is case-insensitive. The `-nm` argument specifies if several network measures, such as betweenness centrality, clustering coefficient, degree and others should be included in the comparison to other methods.
+Beware that the paths to several datasets are hard-coded in the beginning of the script. If you downloaded these datasets, please correct the paths accordingly.
 
 ## Preparing Your Own Data for Use with EMOGI
 See the [readme file in pancancer](pancancer/README.md) for explanations on how you can process your own data and prepare it for EMOGI training.
 
 
 ## Dependencies
+The code is written in Python 3 and was mainly tested on Python 3.6 and a Linux OS but should run on any OS that supports python and pip. Training is faster on a GPU (which requires the `tensorflow-gpu` package) but works also on a standard computer.
+
 To run EMOGI, the following packages are required:
 * gcn (https://github.com/tkipf/gcn)
 * Numpy
