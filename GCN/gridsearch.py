@@ -159,13 +159,13 @@ if __name__ == "__main__":
         print ("Not row-normalizing features because feature dim is {}".format(num_feat))
         #features = utils.sparse_to_tuple(lil_matrix(features))
 
-    """
+
     params = {'support':[1],
-              'dropout':[0.5],
+              'dropout':[0.25, 0.5, 0.75],
               'hidden_dims': [[20, 40], [100, 50], [50, 40, 40, 20],
-                              [100, 50, 10], [50, 100], [300, 100]],
+                              [100, 50, 10], [50, 100], [300, 100], [40, 20], [1000]],
               'loss_mul': [10, 30, 45, 60, 90, 150],
-              'learningrate':[0.001],
+              'learningrate':[0.001, 0.01],
               'epochs':[2000],
               'weight_decay':[5e-3]
               }
@@ -178,7 +178,7 @@ if __name__ == "__main__":
               'epochs':[30],
               'weight_decay':[0.05]
               }
-
+    """
     num_of_settings = len(list(ParameterGrid(params)))
     print ("Grid Search: Trying {} different parameter settings...".format(num_of_settings))
     param_num = 0
