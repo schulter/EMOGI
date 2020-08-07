@@ -31,7 +31,7 @@ In case you want to only train a single model without cross-validation, you can 
 
 For the perturbation experiments in the paper, we used the `train_all_omics.py` script which essentially trains EMOGI models with the same hyper-parameters on a directory of HDF5 containers. See again the `help` option or the other training scripts for details on the parameters.
 
-To conduct a gridsearch to find suitable combinations of hyper-parameters, use the `gridsearch.py` script but note, that the combinations are hard-coded into the python file. Other than that, the script should be fairly easy to use. Furthermore, [this](../analysis/evaluate_gridsearch.ipynb) notebook contains  basic analysis to choose a good setting from a successful gridsearch.
+To conduct a gridsearch to find suitable combinations of hyper-parameters, use the `gridsearch.py` script but note, that the combinations are hard-coded into the python file. Other than that, the script should be fairly easy to use. Furthermore, [this](analysis/evaluate_gridsearch.ipynb) notebook contains  basic analysis to choose a good setting from a successful gridsearch.
 
 To produce basic plots of performance, a prediction for every gene and a comparison with the competing methods, run the `postprocessing.py` script:
 ```
