@@ -13,7 +13,6 @@ import sys
 import math
 from multiprocessing import Process
 from deepexplain.tensorflow import DeepExplain
-#sys.path.append(os.path.abspath('../GCN'))
 from emogi import EMOGI
 import argparse
 
@@ -38,7 +37,7 @@ class LRP:
         """
         # required files and folders
         self.model_dir = model_dir
-        os.chdir(model_dir) # when the data is relative to the model
+        print (self.model_dir)
         self.out_dir = os.path.join(model_dir, 'lrp_sigmoid')
         self.params_file = os.path.join(model_dir, 'hyper_params.txt')
         self.predictions_file = os.path.join(model_dir, 'ensemble_predictions.tsv')
@@ -75,7 +74,7 @@ class LRP:
             else:
                 self.params[key] = utils.str_to_num(value.strip())
         # hdf5 data file
-        self.data_file = lines[-1].strip()
+        self.data_file = os.path.join(self.model_dir, lines[-1].strip())
         if not os.path.isfile(self.data_file):
             raise RuntimeError("hdf5 file '{}' not found.".format(self.data_file))
 
