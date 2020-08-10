@@ -313,5 +313,6 @@ if __name__ == "__main__":
                             logging=True)
 
     # save hyper Parameters and plot
-    gcnIO.write_hyper_params(args, args.data,
+    args_dict = vars(args)
+    gcnIO.write_hyper_params(args_dict, args.data,
                              os.path.join(output_dir, 'hyper_params.txt'))
