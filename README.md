@@ -49,10 +49,10 @@ Beware that the paths to several datasets are hard-coded in the beginning of the
 See the [readme file in pancancer](pancancer/README.md) for explanations on how you can process your own data and prepare it for EMOGI training.
 
 
-## Dependencies
-The code is written in Python 3 and was mainly tested on Python 3.6 and a Linux OS but should run on any OS that supports python and pip. Training is faster on a GPU (which requires the `tensorflow-gpu` package) but works also on a standard computer.
+## Installation & Dependencies
+The code is written in Python 3 and was mainly tested on Python 3.6 and a Linux OS but should run on any OS that supports python and pip. Training is faster on a GPU (which requires the `tensorflow-gpu` instead of the normal `tensorflow` package) but works also on a standard computer.
 
-To run EMOGI, the following packages are required:
+EMOGI has the following dependencies:
 * gcn (https://github.com/tkipf/gcn)
 * Numpy
 * Pandas
@@ -69,6 +69,21 @@ For plotting and correct functioning of all the notebooks, you additionally migh
 * Scipy
 * Goatools (for pathway enrichment)
 * UMAP (for dimension reduction)
+* UpSetPlot (for  visualization of overlaps between datasets/predictions beyond Venn diagrams)
+
+Installing all of the packages should take roughly 10 minutes.
+To install the gcn package, you have to clone and install the gcn package using:
+```
+git clone https://github.com/tkipf/gcn.git
+cd gcn
+python setup.py install
+```
+The other packages can be mostly installed using pip (some are dependenies of others, so no need to install them separately).
+Use the following commands to install all required packages (if you don't have root access on your machine, try the `--user` option of pip):
+```
+pip install tensorflow==1.9.0 h5py mygene matplotlib matplotlib-venn seaborn umap-learn goatools UpSetPlot
+pip install -e git+https://github.com/marcoancona/DeepExplain.git#egg=deepexplain
+```
 
 ## Additional datasets
 We used various different data sets from the community to train and validate EMOGI. For deriving positive and negative labels, as well as for functional validation and relationships to other cancer gene sets, a diverse set of data sets were used. Links to the databases and publications can be found below. Ideally, the jupyter notebooks in this repository contain a data section in the beginning where you can exchange the paths with your own copies of the files. Furthermore, some crucial scripts (such as postprocessing and computation of LRP) will work but not produce all of the plots if certain datasets are not available.
