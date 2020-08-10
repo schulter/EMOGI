@@ -41,6 +41,7 @@ Use the following commands to install all required packages (if you don't have r
 pip install tensorflow==1.9.0 h5py mygene matplotlib matplotlib-venn seaborn umap-learn goatools UpSetPlot
 pip install -e git+https://github.com/marcoancona/DeepExplain.git#egg=deepexplain
 ```
+To verify a successful setup, you can check out our [toy example](example/README.md).
 
 ## Using EMOGI with Existing Models
 The models that we used in the paper can be downloaded at: http://owww.molgen.mpg.de/~sasse/EMOGI/.
