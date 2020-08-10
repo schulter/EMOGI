@@ -38,7 +38,7 @@ python setup.py install
 The other packages can be mostly installed using pip (some are dependenies of others, so no need to install them separately).
 Use the following commands to install all required packages (if you don't have root access on your machine, try the `--user` option of pip):
 ```
-pip install tensorflow==1.9.0 h5py mygene matplotlib matplotlib-venn seaborn umap-learn goatools UpSetPlot
+pip install tensorflow==1.5.0 h5py mygene matplotlib matplotlib-venn seaborn umap-learn goatools UpSetPlot
 pip install -e git+https://github.com/marcoancona/DeepExplain.git#egg=deepexplain
 ```
 To verify a successful setup, you can check out our [toy example](example/README.md).
