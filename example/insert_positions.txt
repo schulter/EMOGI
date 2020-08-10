@@ -1,0 +1,4 @@
+# subnetwork insert positions. Each row corresponds to a subnetwork and each column to a position in it.
+Subnetwork 1: 18	16	17	10	95	
+Subnetwork 2: 72	59	7	71	100	
+Subnetwork 3: 64	1	26	3	101	
