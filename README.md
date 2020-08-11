@@ -54,10 +54,10 @@ To compute the feature and interaction partner contributions for a gene of inter
 python lrp.py -m <path-to-model-directory> -g <hugo-symbol1> <hugo-symbol2> -b True/False
 ```
 The genes have to be provided as hugo gene symbols, eg. `EGFR` or `BRCA1`. The `-b` option controls if the resulting plots are heatmaps (more compact, as shown in the paper) or more informative barplots whose error bars indicate standard deviation across cross-validation runs.
-Finally, to compute the contributions for all genes (~13,000 to 15,000 depending on the PPI network used), you can specify the `-a` option. This will take a long time, however, and uses all available cores.
-The output consists of a pdf file, displaying the multi-omics input feature vector, LRP feature contributions, the most important LRP interaction partner contributions and the multi-omics contributions of the three most important interaction partners for the gene of interest. The multi-omics contributions from the interaction partners are still from the point of view of the gene of interest and indicate that a certain omics feature in a cancer type *of an interacting gene* was important for the classification of the gene of interest.
+Finally, to compute the contributions for all genes (~13,000 to 15,000 depending on the PPI network used), you can specify the `-a` option. This will take multiple days, however, and uses all available cores.
+The output, located in a directory called `lrp_sigmoid` under the model directory, consists of a pdf file, displaying the multi-omics input feature vector, LRP feature contributions, the most important LRP interaction partner contributions and the multi-omics contributions of the three most important interaction partners for the gene of interest. The multi-omics contributions from the interaction partners are still from the point of view of the gene of interest and indicate that a certain omics feature in a cancer type *of an interacting gene* was important for the classification of the gene of interest.
 A second file contains an edgelist file of interaction partners of the gene of interest, readable in Cytoscape or similar programs.
-Run time for a single gene on a computer with 
+Run time for a single gene should be around one to two minutes, depending on the number of cores available.
 *Note: The LRP script is often better not executed on GPU because it doesn't benefit from it and uses a lot of space.*
 
 ## Training EMOGI with Your Own Data
