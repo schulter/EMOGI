@@ -299,8 +299,7 @@ if __name__ == "__main__":
         print("Data is not a hdf5 container. Exit now.")
         sys.exit(-1)
 
-    #output_dir = gcnIO.create_model_dir()
-    output_dir = '../data/GCN/training/test/'
+    output_dir = gcnIO.create_model_dir()
     predictions = train_gcn(data_path=args.data,
                             n_support=args.support,
                             hidden_dims=args.hidden_dims,
