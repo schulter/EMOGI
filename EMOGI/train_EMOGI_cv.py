@@ -148,6 +148,8 @@ def run_all_cvs(adj, features, y_train, y_val, y_test, train_mask, val_mask, tes
             performance_measures.append(val_performance)
         tf.reset_default_graph()
     # save hyper Parameters
+    data_rel_to_model = os.path.relpath(args['data'], output_dir)
+    args['data'] = data_rel_to_model
     gcnIO.write_hyper_params(args, args['data'], os.path.join(output_dir, 'hyper_params.txt'))
     return performance_measures
 

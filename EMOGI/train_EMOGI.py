@@ -314,5 +314,7 @@ if __name__ == "__main__":
 
     # save hyper Parameters and plot
     args_dict = vars(args)
-    gcnIO.write_hyper_params(args_dict, args.data,
+    data_rel_to_model = os.path.relpath(args.data, output_dir)
+    args_dict['data'] = data_rel_to_model
+    gcnIO.write_hyper_params(args_dict, data_rel_to_model,
                              os.path.join(output_dir, 'hyper_params.txt'))
