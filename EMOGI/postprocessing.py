@@ -695,6 +695,7 @@ def compute_ROC_PR_competitors(model_dir, network_name, network_measures=False, 
     roc_results_testset = []
     for name, colname in methods:
         if colname in test_predictions.columns:
+            print (name, colname)
             fpr, tpr, thresholds = roc_curve(y_true=y_true, y_score=test_predictions[colname])
             roc_auc = roc_auc_score(y_true=y_true, y_score=test_predictions[colname])
             roc_results_testset.append((name, roc_auc, fpr, tpr, thresholds))
