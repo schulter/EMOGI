@@ -14,11 +14,12 @@ sys.path.append(os.path.abspath('../pagerank'))
 import pagerank
 
 # sklearn imports
-from sklearn.metrics import roc_curve, roc_auc_score
+from sklearn.metrics import roc_curve, roc_auc_score, f1_score, recall_score, precision_score
 from sklearn.metrics import precision_recall_curve, average_precision_score, auc
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
+from sklearn.preprocessing import StandardScaler
 
 from functools import reduce
 
@@ -41,6 +42,34 @@ PATH_ONGENE = '../data/pancancer/ongene_tsgene/Human_Oncogenes.txt'
 PATH_DEEPWALK = '../data/pancancer/deepWalk_results/{}_embedding_CPDBparams.embedding'
 PATH_HOTNET2_HEAT = '../data/pancancer/hotnet2/heat_syn_cnasnv.json'
 PATH_MUTSIGCV = '../data/pancancer/mutsigcv/mutsigcv_genescores.csv'
+PATH_2020PLUS = '../data/pancancer/2020plus_data/r_random_forest_prediction.txt'
+PATH_GCN_FEATURELESS = '../data/pancancer/GCN_featureless/ensemble_predictions_{}.tsv'
+
+
+"""
+The three methods are copied from Hierarchical HotNet
+"""
+def degree_sequence(A):
+    '''
+    Find the degree sequence for an adjacency matrix.
+    '''
+    return np.sum(A, axis=0)
+
+def walk_matrix(A):
+    '''
+    Find the walk matrix for the random walk.
+    '''
+    d = degree_sequence(A)
+    d[np.where(d<=0)] = 1
+    return np.asarray(A, dtype=np.float64)/np.asarray(d, dtype=np.float64)
+
+def hotnet2_similarity_matrix(A, beta):
+    '''
+    Perform the random walk with restart process in HotNet2.
+    '''
+    from scipy.linalg import inv
+    return beta*inv(np.eye(*np.shape(A))-(1-beta)*walk_matrix(A))
+
 
 def get_training_data(training_dir):
     """Load data from a EMOGI trained model.
@@ -73,7 +102,7 @@ def get_training_data(training_dir):
     return data
 
 
-def get_optimal_cutoff(pred, node_names, test_mask, y_test, colname='Mean_Pred'):
+def get_optimal_cutoff(pred, node_names, test_mask, y_test, method='IS', colname='Mean_Pred'):
     """Compute an optimal cutoff for classification based on PR curve.
 
     This method computes optimal an optimal cutoff (the point
@@ -86,6 +115,10 @@ def get_optimal_cutoff(pred, node_names, test_mask, y_test, colname='Mean_Pred')
                                 as computed by get_training_data (np object array)
     test_mask:                  The test mask as computed by get_training_data
     y_test:                     The test labels as computed by get_training_data
+    method:                     The method used to compute the cutoff. Can be either 'PR'
+                                to compute the value of the PR curve closest to the upper
+                                right corner or 'IS' for computing the intersection between
+                                precision and recall.
     colname:                    The name of the column of pred that contains
                                 the output probability (EMOGI score)
     
@@ -95,15 +128,33 @@ def get_optimal_cutoff(pred, node_names, test_mask, y_test, colname='Mean_Pred')
     pred_test = pred[pred.Name.isin(node_names[test_mask, 1])]
     y_true = pred_test.label
     y_score = pred_test[colname]
-    pr, rec, thresholds = precision_recall_curve(y_true=y_true, probas_pred=y_score)
-    pr = pr[1:]
-    rec = rec[1:]
-    thresholds = thresholds[1:]
-    distances = np.sqrt(np.sum((np.array([1, 1]) - np.array([rec, pr]).T)**2, axis=1))
-    idx = np.argmin(distances)
-    best_threshold = thresholds[idx]
-    return best_threshold
+    if method == 'PR':
+        pr, rec, thresholds = precision_recall_curve(y_true=y_true, probas_pred=y_score)
+        pr = pr[1:]
+        rec = rec[1:]
+        thresholds = thresholds[1:]
+        distances = np.sqrt(np.sum((np.array([1, 1]) - np.array([rec, pr]).T)**2, axis=1))
+        idx = np.argmin(distances)
+        best_threshold = thresholds[idx]
+        return best_threshold
 
+    elif method == 'IS':
+        cutoff_vals = np.linspace(0, .999, 1000)
+        all_recall = []
+        for cutoff in cutoff_vals:
+            r = recall_score(y_true=y_true, y_pred=y_score > cutoff)
+            all_recall.append(r)
+
+        all_precision = []
+        for cutoff in cutoff_vals:
+            p = precision_score(y_true=y_true, y_pred=y_score > cutoff)
+            all_precision.append(p)
+        diffs = np.abs(np.array(all_precision) - np.array(all_recall))
+        return cutoff_vals[diffs.argmin()]
+
+    else:
+        print ("Unknown method: {}".format(method))
+        return 0.5
 
 def get_predictions(train_dir):
     pred_file = os.path.join(train_dir, 'ensemble_predictions.tsv')
@@ -147,7 +198,7 @@ def get_metric_score(pred, node_names, knowns, candidates, cutoff, negatives=Non
     """
     y_knowns = pred.Name.isin(knowns)
     y_candidates = pred.Name.isin(candidates)
-    negatives = None
+
     if not negatives is None: # either use the negatives or not
         y_all_knowns = list(knowns) + list(negatives)
         y_all_cand = list(candidates) + list(negatives)
@@ -491,7 +542,7 @@ def compute_predictions_competitors(model_dir, network_name, network_measures=Fa
         G = nx.from_pandas_adjacency(pd.DataFrame(network, index=node_names[:, 1],
                                                 columns=node_names[:, 1]))
         G.remove_edges_from(nx.selfloop_edges(G))
-        G = max(nx.connected_component_subgraphs(G), key=len)
+        G = max([G.subgraph(c) for c in nx.connected_components(G)], key=len)
         nodes = pd.DataFrame(node_names, columns=['ID', 'Name']).set_index('Name')
         node_degree = pd.DataFrame(network, index=node_names[:, 1],columns=node_names[:, 1]).sum(axis=1)
         nd_baseline = network.sum(axis=0)[test_mask.astype(np.bool)]
@@ -562,6 +613,7 @@ def compute_predictions_competitors(model_dir, network_name, network_measures=Fa
         n_df = pd.DataFrame(node_names, columns=['ID', 'Name'])
         embedding_with_names = deepwalk_embeddings.join(n_df)
         X_dw = embedding_with_names.set_index('Name').reindex(n_df.Name).drop('ID', axis=1)
+        X_dw.fillna(0, inplace=True)
         X_train_dw = X_dw[train_mask.astype(np.bool)]
         X_test_dw = X_dw[test_mask.astype(np.bool)]
         clf_dw = SVC(kernel='rbf', class_weight='balanced', probability=True, gamma='auto')
@@ -572,7 +624,64 @@ def compute_predictions_competitors(model_dir, network_name, network_measures=Fa
                                     os.path.join(model_dir, 'corr_deepwalk_degree.svg')
             )
         all_predictions['DeepWalk'] = pred_deepwalk_all[:, 1]
+        
+    # train Random Forest on DeepWalk embeddings and features
+    if os.path.exists(fname_dw):
+        deepwalk_embeddings = pd.read_csv(fname_dw, header=None, skiprows=1, sep=' ')
+        deepwalk_embeddings.columns = ['Node_Id'] + deepwalk_embeddings.columns[1:].tolist()
+        deepwalk_embeddings.set_index('Node_Id', inplace=True)
+        n_df = pd.DataFrame(node_names, columns=['ID', 'Name'])
+        embedding_with_names = deepwalk_embeddings.join(n_df).drop('ID',  axis=1).set_index('Name')
+        embedding_with_names = embedding_with_names.reindex(n_df.Name)
+        F = pd.DataFrame(features, index=node_names[:, 1])
+        X_deepwalk_features = embedding_with_names.join(F, rsuffix='_')
+        X_deepwalk_features.reindex(n_df.Name)
+        X_deepwalk_features.fillna(0, inplace=True)
+        #std_scaler = StandardScaler()
+        #X_deepwalk_features = std_scaler.fit_transform(X_deepwalk_features)
+        X_train_dwfeat = X_deepwalk_features[train_mask.astype(np.bool)]
+        X_test_dwfeat = X_deepwalk_features[test_mask.astype(np.bool)]
 
+        rf = RandomForestClassifier()
+        rf.fit(X_train_dwfeat, y_train_svm.reshape(-1))
+        pred_dwfeat = rf.predict_proba(X_test_dwfeat)
+        if verbose: print ("Number of predicted genes in Test set (RF): {}".format(pred_dwfeat.argmax(axis=1).sum()))
+        pred_dwfeat_all = rf.predict_proba(X_deepwalk_features)
+
+        if verbose: print ("RF predicts {} genes in total".format(np.argmax(pred_dwfeat_all, axis=1).sum()))
+        if plot_correlations:
+            compute_degree_correlation(model_dir, pd.Series(pred_dwfeat_all[:, 1], index=node_names[:, 1]),
+                                    os.path.join(model_dir, 'corr_DWFeat_degree.svg')
+            )
+        all_predictions['RF_dwfeat'] = pred_dwfeat_all[:, 1]
+
+    # load GCN results without features
+    fname_GCN_nofeat = PATH_GCN_FEATURELESS.format(network_name.upper())
+    if os.path.exists(fname_GCN_nofeat):
+        pred_gcn = pd.read_csv(fname_GCN_nofeat, sep='\t', header=0, index_col=0)
+        nodes = pd.DataFrame(node_names, columns=['ID', 'Name']).set_index('ID')
+        pred_gcn.drop([c for c in pred_gcn.columns if c.startswith('Prob_pos')], axis=1, inplace=True)
+        pred_gcn.columns = [i if not i == 'Mean_Pred' else 'Prob_pos' for i in pred_gcn.columns]
+        pred_gcn = pred_gcn.set_index('Name').reindex(all_predictions.index)
+        pred_gcn.fillna(0, inplace=True)
+        gcn_pred_all = pred_gcn.Prob_pos
+        if verbose: print ("GCN without features predicts {} genes in total".format((pred_gcn.Prob_pos > 0.5).sum()))
+        if plot_correlations:
+            compute_degree_correlation(model_dir, pred_gcn.Prob_pos,
+                                       os.path.join(model_dir, 'corr_GCN_featureless_degree.svg')
+            )
+        all_predictions['GCN_Featureless'] = gcn_pred_all
+
+    if os.path.exists(PATH_2020PLUS):
+        gene_scores_2020plus = pd.read_csv(PATH_2020PLUS, sep='\t').set_index('gene')
+        n_df = pd.DataFrame(node_names, columns=['ID', 'Name']).set_index('Name')
+        gene_scores_2020plus = gene_scores_2020plus.reindex(n_df.index).fillna(0)
+        if plot_correlations:
+            compute_degree_correlation(model_dir, gene_scores_2020plus['driver score'],
+                                    os.path.join(model_dir, 'corr_2020plus_degree.svg')
+            )
+        all_predictions['2020plus'] = gene_scores_2020plus['driver score']
+        
     # train pagerank on the network
     scores, names = pagerank.pagerank(network, node_names)
     pr_df = pd.DataFrame(scores, columns=['Number', 'Score']) # get the results in same order as our data
@@ -606,8 +715,10 @@ def compute_predictions_competitors(model_dir, network_name, network_measures=Fa
         beta = 0.3
         W = network / network.sum(axis=0) # normalize A
         np.nan_to_num(W, copy=False)
-        #assert (np.allclose(W.sum(axis=0), 1)) # assert that rows/cols sum to 1
+        assert (np.allclose(W.sum(axis=0), 1)) # assert that rows/cols sum to 1
         p = np.linalg.inv(beta * (np.eye(network.shape[0]) - (1 - beta) * W)).dot(np.array(p_0))
+        #S = hotnet2_similarity_matrix(network, 0.3)
+        #p_hh = S.dot(np.array(p_0))
         heat_df['rwr_score'] = p
         if plot_correlations:
             compute_degree_correlation(model_dir, heat_df.set_index('Name').rwr_score,
@@ -632,7 +743,7 @@ def compute_predictions_competitors(model_dir, network_name, network_measures=Fa
 
 
 
-def compute_ROC_PR_competitors(model_dir, network_name, network_measures=False, verbose=False):
+def compute_ROC_PR_competitors(model_dir, network_name, network_measures=False, plot_correlations=True, verbose=False):
     """Computes ROC and PR curves and compares to base line methods.
 
     This function uses the mean prediction scores and the test set which was
@@ -670,7 +781,7 @@ def compute_ROC_PR_competitors(model_dir, network_name, network_measures=False, 
     all_predictions, test_predictions = compute_predictions_competitors(model_dir=model_dir,
                                                                         network_name=network_name,
                                                                         network_measures=network_measures,
-                                                                        plot_correlations=False,
+                                                                        plot_correlations=plot_correlations,
                                                                         verbose=verbose
     )
 
@@ -678,13 +789,16 @@ def compute_ROC_PR_competitors(model_dir, network_name, network_measures=False, 
         methods = [('EMOGI', 'EMOGI'), ('Random Forest', 'Random_Forest'),
                    ('DeepWalk', 'DeepWalk'), ('Node Degree', 'Degree'),
                    ('Core/K-Shell', 'Core'), ('Clustering Coef.', 'Clustering_Coeff'),
-                   ('Betweenness', 'Betweenness'),
+                   ('Betweenness', 'Betweenness'), #('Log. Reg.', 'Log_Reg'),
                    ('PageRank', 'PageRank'), ('Net. Prop.', 'RWR'),
-                   ('MutSigCV', 'MutSigCV')] #, ('Log. Reg.', 'Log_Reg')]
+                   ('MutSigCV', 'MutSigCV'), ('DeepWalk + Features RF', 'RF_dwfeat'),
+                   ('20/20+', '2020plus'), ('GCN Network Only', 'GCN_Featureless')]
     else:
         methods = [('EMOGI', 'EMOGI'), ('Random Forest', 'Random_Forest'),
                    ('DeepWalk', 'DeepWalk'), ('PageRank', 'PageRank'),
-                   ('Net. Prop.', 'RWR'), ('MutSigCV', 'MutSigCV')]
+                   ('Net. Prop.', 'RWR'), ('MutSigCV', 'MutSigCV'),
+                   ('DeepWalk + Features RF', 'RF_dwfeat'), ('20/20+', '2020plus'),
+                   ('GCN Network Only', 'GCN_Featureless')]
 
     # compute ROC values
     linewidth = 4
@@ -864,7 +978,7 @@ def compute_degree_correlation(model_dir, predictions, out_file):
     """
     data = get_training_data(model_dir)
     network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feat_names = data
-    node_degree = pd.DataFrame(network.sum(axis=1), index=node_names[:, 1], columns=['Degree'])
+    node_degree = pd.DataFrame(network.sum(axis=1)//2, index=node_names[:, 1], columns=['Degree'])
     p = predictions.reindex(node_degree.index).dropna()
     plot_correlation(series_1=p.rank(),
                      series_2=node_degree.loc[p.index, 'Degree'].rank(),
@@ -917,7 +1031,9 @@ def postprocessing(model_dir, network_name, include_network_measures=False):
     compute_average_ROC_curve(model_dir, all_preds, all_sets)
     compute_average_PR_curve(model_dir, all_preds, all_sets)
     best_thr_roc, best_thr_pr = compute_ROC_PR_competitors(model_dir, network_name,
-                                                           include_network_measures)
+                                                           include_network_measures,
+                                                           verbose=False
+                                                          )
     data = get_training_data(model_dir)
     network, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, node_names, feat_names = data
     nodes = pd.DataFrame(node_names, columns=['ID', 'Name'])
@@ -929,7 +1045,7 @@ def postprocessing(model_dir, network_name, include_network_measures=False):
                                                    baileyetal_path=PATH_COMPCHARACDRIVERS,
                                                    ongene_path=PATH_ONGENE
                                                   )
-    compute_overlap(model_dir, 'overlap_NCG.svg', kcgs, ccgs, best_thr_pr,
+    compute_overlap(model_dir, 'overlap_NCG.svg', nodes[nodes.Name.isin(kcgs)].Name, nodes[nodes.Name.isin(ccgs)].Name, 0.802,
                     ['Known Cancer Genes\n(NCG)', 'Candidate Cancer Genes\n(NCG)']
     )
 
