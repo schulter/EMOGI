@@ -29,10 +29,10 @@ ensembl = useDataset("hsapiens_gene_ensembl", mart = mart)
 #entrezgene_ids_universe <- NULL; # All entrez gene IDs associated with any gene ontology are used
 
 # Converting the IDs takes ages, so make sure to write the converted universe to file afterwards
-universe_path <- file.path(dirname(output_path), "universe.tsv")
-if (file.exists(universe_path)) {
+existing_universe_path <- file.path(dirname(output_path), "universe.tsv")
+if (file.exists(existing_universe_path)) {
     print ("Found universe file")
-    ensembl_entrez_universe <- read.table(universe_path, sep='\t', header=T);
+    ensembl_entrez_universe <- read.table(existing_universe_path, sep='\t', header=T);
 } else {
     print ("Didn't find universe file. Have to convert IDs...")
     universe_ensembl <- read.table(universe_path, sep='\t', header=T)[1];
@@ -54,7 +54,7 @@ ensembl_entrez_ids <- getBM(values = ensembl_ids,
                             mart = ensembl,
                             attributes = c("ensembl_gene_id", "entrezgene_id","hgnc_symbol")
                             )
-
+print (ensembl_ids)
 #KEGG enrichment analysis
 frame = toTable(org.Hs.egPATH)
 keggframeData = data.frame(frame$path_id, frame$gene_id)
