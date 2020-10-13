@@ -4,7 +4,7 @@ The network is a simulated random small-world graph with three cliques embedded.
 You may run the toy example simply using:
 ```
 cd EMOGI
-python train_EMOGI.py -e 2000 -s 1 -hd 100 -lm 30 -d ../example/toy_example.h5
+python train_EMOGI_cv.py -e 2000 -s 1 -hd 100 -lm 30 -cv 3 -d ../example/toy_example.h5
 ```
 These are hyper parameters that were not optimized using a grid search but are expected to work to some degree in practice.
 The training is expected to take only some seconds or few minutes on a machine with 64 cores and no GPU.
