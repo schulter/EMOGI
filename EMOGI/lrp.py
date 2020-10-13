@@ -7,6 +7,7 @@ import os
 import re
 import h5py
 import numpy as np
+import scipy
 import utils
 import tensorflow as tf
 import sys
@@ -17,7 +18,7 @@ from emogi import EMOGI
 import argparse
 
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0' #-1 for no GPU
 
 
 class LRP:
@@ -91,6 +92,14 @@ class LRP:
             else:
                 self.features_raw = f['features'][:]
             self.y_train = f['y_train'][:]
+            self.y_test = f['y_test'][:]
+            self.test_mask = f['mask_test'][:]
+            if 'mask_val' in f:
+                self.val_mask = f['mask_val'][:]
+                self.y_val = f['y_val'][:]
+            else:
+                self.val_mask = None
+                self.y_val = None
             # collect gene symbols of positive genes
             positives = [self.y_train.flatten(),
                          f['y_test'][:].flatten(),
@@ -138,7 +147,7 @@ class LRP:
                               hidden_dims=self.params['hidden_dims'],
                               pos_loss_multiplier=self.params['loss_mul'],
                               logging=False, sparse_network=False,
-                              name='mygcn' # for compatibility with older models
+                              name='emogi' # 'mygcn' for compatibility with older models
                 )
                 model.load(ckpt.model_checkpoint_path, sess)
                 idx_gene = self.node_names.index(gene_name)
@@ -250,12 +259,12 @@ class LRP:
         idx_top = idx_top[np.argsort(sums[idx_top])][::-1]
         x = np.arange(top_n)
         x_labels = [self.node_names[i] for i in idx_top]
-        #for i, gene in enumerate(x_labels): # don't show gene itself
-        #    if gene == gene_name:
-        #        x = np.arange(top_n - 1)
-        #        idx_top = np.delete(idx_top, i)
-        #        x_labels = [self.node_names[i] for i in idx_top]
-        #        break
+        for i, gene in enumerate(x_labels): # don't show gene itself
+            if gene == gene_name:
+                x = np.arange(top_n - 1)
+                idx_top = np.delete(idx_top, i)
+                x_labels = [self.node_names[i] for i in idx_top]
+                break
         ax = plt.Subplot(fig, outer_grid[2])
         ax.bar(x, sums[idx_top], tick_label=x_labels)
         ax.set_ylabel(None)
@@ -374,7 +383,7 @@ class LRP:
                               hidden_dims=self.params['hidden_dims'],
                               pos_loss_multiplier=self.params['loss_mul'],
                               logging=False, sparse_network=False,
-                              name='mygcn' # for compatibility with older models
+                              name='emogi' # name='mygcn' # for compatibility with older models
                 )
                 model.load(ckpt.model_checkpoint_path, sess)
 
@@ -387,7 +396,10 @@ class LRP:
                 # run the explain function for every gene
                 for idx_g, gene_name in enumerate(self.node_names):
                     mask_gene = np.zeros((self.features.shape[0], 1))
-                    mask_gene[idx_g] = 1
+                    for line in self.predicted_probs:
+                        if line[1] == gene_name:
+                            # (gene name, true label, mean prediction)
+                            mask_gene[idx_g] = float(line[14])
                     attributions = explainer.run(xs=[self.features, *self.support],
                                                  ys=mask_gene
                     )
@@ -396,10 +408,15 @@ class LRP:
                     for support in range(len(neighbor_contribution)):
                         # divide by total (neighbor) contribution to make
                         # every gene contribute the same total numbers
-                        total_neighbor_contrib = np.abs(attributions[support+1].sum().sum())
-                        if total_neighbor_contrib > 0.01:
+                        #total_neighbor_contrib = np.abs(attributions[support+1].sum().sum())
+                        #if total_neighbor_contrib > 0.01:
                             #print (total_neighbor_contrib, (attributions[support+1] / total_neighbor_contrib).sum().sum())
-                            neighbor_contribution[support] += (attributions[support+1] / total_neighbor_contrib)
+                        #    neighbor_contribution[support] += (attributions[support+1] / total_neighbor_contrib)
+                        #attr = attributions[support+1]
+                        #ranked_contrib_0 = scipy.stats.rankdata(attr, axis=0, method='dense')
+                        #ranked_contrib = ranked_contrib_0 + scipy.stats.rankdata(attr, axis=1, method='dense') / 2.
+                        neighbor_contribution[support][idx_g, :] = attributions[support+1][idx_g, :]
+
                     if idx_g > 0 and idx_g % 500 == 0:
                         print ("Computed LRP for {} genes so far".format(idx_g))
         tf.reset_default_graph()
@@ -444,10 +461,10 @@ class LRP:
 
         # save to disk
         def save_to_disk():
-            np.save(os.path.join(self.out_dir, "feat_mean_all.npy"), feature_contribution_final)
-            np.save(os.path.join(self.out_dir, "feat_std_all.npy"), feature_contribution_std)
+            np.save(os.path.join(self.out_dir, "feat_mean_all_nosum.npy"), feature_contribution_final)
+            np.save(os.path.join(self.out_dir, "feat_std_all_nosum.npy"), feature_contribution_std)
             for idx, mat in enumerate(neighbor_contributions_final):
-                np.save(os.path.join(self.out_dir, "support_{}_mean_sum.npy".format(idx)), mat)
+                np.save(os.path.join(self.out_dir, "support_{}_mean_nosum.npy".format(idx)), mat)
         save_to_disk()
 
     def plot_lrp(self, gene_names, n_processes=1, heatmap_plots=True):
@@ -489,9 +506,8 @@ class LRP:
 
     def compute_lrp(self, gene_name):
         """ Perform LRP for a single gene and return the results.
-
         LRP is being performed for all CV folds of the gene of interest.
-
+        
         This function returns 4 objects:
         - mean feature attributions (numpy array of shape (number of features, ))
         - std of feature attributions (numpy array of shape (number of features, ))
@@ -586,7 +602,7 @@ def main():
                  "FGFR2", "FGFR3", "TTN", "TWIST1",
                  "APC", "ERBB3", "ERBB2", "AR", "NRAS", "HDAC3"]
         interpreter = LRP(model_dir=args.model_dir)
-        interpreter.plot_lrp(genes)
+        interpreter.plot_lrp(genes, heatmap_plots=not args.bar_plot)
     else:
         genes = args.genes
         interpreter = LRP(model_dir=args.model_dir)
