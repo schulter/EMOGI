@@ -114,6 +114,7 @@ class GraphConvolution2DAnd3D(GraphConvolution):
                     pre_sup = dot(x, self.vars['weights_' + str(i)],
                                     sparse=False)
                 else:
+                    print ("Graph convolution without features...")
                     pre_sup = self.vars['weights_' + str(i)]
                 support = dot(self.support[i], pre_sup, sparse=self.sparse_network)
                 supports.append(support)
@@ -148,7 +149,7 @@ class EMOGI(Model):
     """
     def __init__(self, placeholders, input_dim, learning_rate=0.1,
                  num_hidden_layers=2, hidden_dims=[20, 40], pos_loss_multiplier=1,
-                 weight_decay=5e-4, sparse_network=True, **kwargs):
+                 weight_decay=5e-4, sparse_network=True, featureless=False, **kwargs):
         super(EMOGI, self).__init__(**kwargs)
 
         # some checks first
@@ -158,13 +159,20 @@ class EMOGI(Model):
         # data placeholders
         self.inputs = placeholders['features']
         if len(placeholders['features'].get_shape().as_list()) > 2: #3D
-            self.input_dim = placeholders['features'].get_shape().as_list()[1:]
+            if featureless:
+                self.input_dim = placeholders['features'].get_shape().as_list()[0]
+            else:
+                self.input_dim = placeholders['features'].get_shape().as_list()[1:]
         else:
-            self.input_dim = placeholders['features'].get_shape().as_list()[1]
+            if featureless:
+                self.input_dim = placeholders['features'].get_shape().as_list()[0]
+            else:
+                self.input_dim = placeholders['features'].get_shape().as_list()[1]
         self.output_dim = placeholders['labels'].get_shape().as_list()[1]
         self.placeholders = placeholders
         self.optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
         self.sparse_network = sparse_network
+        self.featureless = featureless
 
         # model params
         self.weight_decay = weight_decay
@@ -189,7 +197,8 @@ class EMOGI(Model):
                                                        sparse_inputs=sparse_layer,
                                                        name='gclayer_{}'.format(l+1),
                                                        logging=self.logging,
-                                                       sparse_network=self.sparse_network)
+                                                       sparse_network=self.sparse_network,
+                                                       featureless=self.featureless if l==0 else False)
             )
             inp_dim = self.hidden_dims[l]
         # add last layer
@@ -202,7 +211,8 @@ class EMOGI(Model):
                                                    sparse_inputs=False,
                                                    name='gclayer_{}'.format(layer_n),
                                                    logging=self.logging,
-                                                   sparse_network=self.sparse_network)
+                                                   sparse_network=self.sparse_network,
+                                                   featureless=False)
         )
 
     def _loss(self):
