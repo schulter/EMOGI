@@ -46,16 +46,30 @@ def colorize_by_omics(axes, feature_names):
 def lrp_heatmap_plot(fig, outer_grid, x, xlabels, title=None):
     x = np.abs(x)
     if not len(x.shape) == 2: # we have only 1D input, make it 2D
-        x = x.reshape(16, 3, order='F')
-    inner = gridspec.GridSpecFromSubplotSpec(3, 1, hspace=0, subplot_spec=outer_grid)
-    omics = ['Mutation', 'Methylation', 'Expression']
-    cmaps = [sns.color_palette("Reds", n_colors=50), sns.color_palette("Blues", n_colors=50), sns.color_palette("Greens", n_colors=50)]
+        x = x.reshape(16, -1, order='F')
+    inner = gridspec.GridSpecFromSubplotSpec(x.shape[1], 1, hspace=0, subplot_spec=outer_grid)
+    if x.shape[1] == 3:
+        omics = ['Mutation', 'Methylation', 'Expression']
+        cmaps = [sns.color_palette("Reds", n_colors=50),
+             sns.color_palette("Blues", n_colors=50),
+             sns.color_palette("Greens", n_colors=50)]
+    elif x.shape[1] == 4:
+        omics = ['Mutation', 'Copy Num. Change', 'Methylation', 'Expression']
+        cmaps = [sns.color_palette("Reds", n_colors=50),
+             sns.color_palette("Purples", n_colors=50),
+             sns.color_palette("Blues", n_colors=50),
+             sns.color_palette("Greens", n_colors=50)] # for CNAs
+        x[:,[1, 3]] = x[:,[3, 1]]
+        x[:,[2, 3]] = x[:,[3, 2]] # order by SNV, CNA, Meth, Expr.
+    else:
+        print ("Features not understood. Maybe you have a patient-wise model. Try with --bars True.")
     vmax = x.max()
     vmin = x.min()
-    for c in range(3):
+    print ("Min: {}\tMax: {}".format(vmin, vmax))
+    for c in range(x.shape[1]):
         ax = plt.Subplot(fig, inner[c])
         xticklabels = False
-        if c == 2: # last omics
+        if c == x.shape[1] - 1: # last omics
             xticklabels = [i.split(':')[1] for i in xlabels if i.startswith('MF:')]
             #xticklabels = xlabels
         sns.heatmap(x[:, c].reshape(1, -1), ax=ax, xticklabels=xticklabels,
@@ -63,7 +77,7 @@ def lrp_heatmap_plot(fig, outer_grid, x, xlabels, title=None):
                     cbar_kws={'use_gridspec': False, 'orientation': 'vertical'},
                     vmax=vmax, vmin=vmin)
         ax.set_yticklabels([omics[c]], rotation=0, fontsize=10)
-        if c == 2:
+        if c == x.shape[1] - 1:
             ax.set_xticklabels(xticklabels, rotation=90, fontsize=10)
         if not title is None and c == 0:
             ax.set_title(title, fontsize=16)

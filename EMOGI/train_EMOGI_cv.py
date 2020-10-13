@@ -124,7 +124,7 @@ def run_all_cvs(adj, features, y_train, y_val, y_test, train_mask, val_mask, tes
         #features = utils.sparse_to_tuple(lil_matrix(features))
     else:
         print("Not row-normalizing features because feature dim is {}".format(num_feat))
-        features = utils.sparse_to_tuple(lil_matrix(features))
+        #features = utils.sparse_to_tuple(lil_matrix(features))
 
     # get higher support matrices
     support, num_supports = utils.get_support_matrices(adj, args['support'])
