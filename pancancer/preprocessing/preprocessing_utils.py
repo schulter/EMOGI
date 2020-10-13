@@ -309,14 +309,38 @@ def get_positive_labels(nodes, strategy='all', cancer_type='pancancer', remove_b
                 for line in f.readlines():
                     known_cancer_genes.append(line.strip())
         else:
+            # start with COSMIC genes that contain the tissue in question
+            tissue_pairs = {'blca': ['bladder', 'urinary'],
+                            'brca': ['breast'],
+                            'cesc': ['cervix', 'cervical', 'endocervical'],
+                            'ucec': ['uterus', 'uterine'],
+                            'coad': ['colon', 'colorectal'],
+                            'lihc': ['liver'],
+                            'hnsc': ['salivary', 'head and neck'],
+                            'esca': ['esophagus', 'esophageal'],
+                            'prad': ['prostate'],
+                            'stad': ['stomach'],
+                            'thca': ['thyroid'],
+                            'lusc': ['lung'],
+                            'kirp': ['kidney']
+                           }
+            cosmic_gene_scores = pd.read_csv('../../data/pancancer/cosmic/cancer_gene_census.csv', header=0)
+            cosmic_gene_scores.dropna(subset=['Tumour Types(Somatic)'], axis=0, inplace=True)
+            genes_for_ctype = cosmic_gene_scores[cosmic_gene_scores['Tumour Types(Somatic)'].str.contains('|'.join(tissue_pairs[cancer_type.lower()]))]
+            known_cancer_genes = list(genes_for_ctype['Gene Symbol'])
+            if verbose:
+                print ("Got {} COSMIC CGC Genes".format(len(known_cancer_genes)))
+
             # add digSEE genes for the cancer type in question for all omics
             for evidence_type in ['mutation', 'methylation', 'expression']:
                 fname = '../../data/pancancer/digSEE/{0}/{0}_{1}.txt'.format(evidence_type, cancer_type.upper())
                 evidence = pd.read_csv(fname, sep='\t')
                 high_scores = evidence[evidence['EVIDENCE SENTENCE SCORE'] >= 0.8]
                 known_cancer_genes += high_scores['GENE SYMBOL'].tolist()
+                if verbose:
+                    print ("Added {} DigSEE {} Genes".format(high_scores['GENE SYMBOL'].nunique(), evidence_type))
             known_cancer_genes = list(set(known_cancer_genes)) # remove duplicates
-        known_cancer_genes_innet = nodes[nodes.Name.isin(ncg_known_cancer_genes)].Name
+        known_cancer_genes_innet = nodes[nodes.Name.isin(known_cancer_genes)].Name
     else:
         print ("Label Source {} not understood.".format(strategy), file=sys.stderr)
     
