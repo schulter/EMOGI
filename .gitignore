@@ -110,12 +110,21 @@ venv.bak/
 # data files
 *.xls
 *.xlsx
+*.out
+*.txt
+*.pkl
 
 # graphs/networks
 *.xml
 *.gml
 *.html
 *.cys
+
+# KEGG Pathways & GO enrichment
+*.obo
+gene2go
+*_hsa
+*-geneid
 
 # data directory
 data/
