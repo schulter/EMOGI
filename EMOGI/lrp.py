@@ -396,10 +396,11 @@ class LRP:
                 # run the explain function for every gene
                 for idx_g, gene_name in enumerate(self.node_names):
                     mask_gene = np.zeros((self.features.shape[0], 1))
-                    for line in self.predicted_probs:
-                        if line[1] == gene_name:
-                            # (gene name, true label, mean prediction)
-                            mask_gene[idx_g] = float(line[14])
+                    mask_gene[idx_g] = 1
+                    #for line in self.predicted_probs:
+                    #    if line[1] == gene_name:
+                    #        # (gene name, true label, mean prediction)
+                    #        mask_gene[idx_g] = float(line[14])
                     attributions = explainer.run(xs=[self.features, *self.support],
                                                  ys=mask_gene
                     )
@@ -458,13 +459,16 @@ class LRP:
         feature_contribution_std = np.std(feature_contributions, axis=0)
         # since we have s support matrices, we sum over axis 1 to get shape: (s x n x n)
         neighbor_contributions_final = np.mean(neighbor_contributions, axis=1)
+        neighbor_contributions_std = np.std(neighbor_contributions, axis=1)
 
         # save to disk
         def save_to_disk():
-            np.save(os.path.join(self.out_dir, "feat_mean_all_nosum.npy"), feature_contribution_final)
-            np.save(os.path.join(self.out_dir, "feat_std_all_nosum.npy"), feature_contribution_std)
+            np.save(os.path.join(self.out_dir, "feat_mean_all_nosum_mask1.npy"), feature_contribution_final)
+            np.save(os.path.join(self.out_dir, "feat_std_all_nosum_mask1.npy"), feature_contribution_std)
             for idx, mat in enumerate(neighbor_contributions_final):
-                np.save(os.path.join(self.out_dir, "support_{}_mean_nosum.npy".format(idx)), mat)
+                np.save(os.path.join(self.out_dir, "support_{}_mean_nosum_mask1.npy".format(idx)), mat)
+            for idx, mat in enumerate(neighbor_contributions_std):
+                np.save(os.path.join(self.out_dir, "support_{}_std_nosum_mask1.npy".format(idx)), mat)
         save_to_disk()
 
     def plot_lrp(self, gene_names, n_processes=1, heatmap_plots=True):
@@ -548,10 +552,10 @@ class LRP:
 
         # save matrices in numpy format
         def save_to_disk():
-            np.save(os.path.join(self.out_dir, "feat_mean_all_new.npy"), feat_mean_all)
-            np.save(os.path.join(self.out_dir, "feat_std_all_new.npy"), feat_std_all)
+            np.save(os.path.join(self.out_dir, "feat_mean_all_oldmethod.npy"), feat_mean_all)
+            np.save(os.path.join(self.out_dir, "feat_std_all_oldmethod.npy"), feat_std_all)
             for idx, mat in enumerate(support_mean_sum):
-                np.save(os.path.join(self.out_dir, "support_{}_mean_sum_normed.npy".format(idx)), mat)
+                np.save(os.path.join(self.out_dir, "support_{}_mean_sum_oldmethod.npy".format(idx)), mat)
 
         # run LRP for every gene and save results into aforementioned matrices
         for idx_g, gene_name in enumerate(self.node_names):
