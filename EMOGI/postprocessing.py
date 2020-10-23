@@ -228,6 +228,9 @@ def get_metric_score(pred, node_names, knowns, candidates, cutoff, negatives=Non
         f1_known = f1_score(y_pred=y_pred_knowns[colname] >= cutoff, y_true=y_true_knowns)
         f1_cand = f1_score(y_pred=y_pred_cand[colname] >= cutoff, y_true=y_true_cand)
         return f1_known, f1_cand
+    else:
+        print ("Metric not recognized")
+        return 0, 0
 
 
 def get_all_cancer_gene_sets(ncg_path, oncoKB_path, baileyetal_path, ongene_path):
@@ -893,7 +896,7 @@ def load_predictions(model_dir):
     # read predictions, too
     if not os.path.isfile(os.path.join(model_dir, 'ensemble_predictions.tsv')):
         print ("Ensemble predictions not found. Calculating...")
-        compute_ensemble_predictions(model_dir)
+        compute_ensemble_predictions(model_dir, comprehensive=True)
     predictions = pd.read_csv(os.path.join(model_dir, 'ensemble_predictions.tsv'),
                                         sep='\t', header=0, index_col=0)
     nodes = pd.DataFrame(node_names, columns=['ID', 'Name']).set_index('ID')
@@ -1026,7 +1029,8 @@ def postprocessing(model_dir, network_name, include_network_measures=False):
     """Run all plotting functions.
     """
     all_preds, all_sets = compute_ensemble_predictions(model_dir, comprehensive=True)
-    pred = load_predictions(model_dir).set_index('Name')['Prob_pos']
+    pred_df = get_predictions(model_dir)
+    pred = pred_df.set_index('Name')['Mean_Pred']
     compute_degree_correlation(model_dir, pred, os.path.join(model_dir, 'corr_emogi_degree.svg'))
     compute_average_ROC_curve(model_dir, all_preds, all_sets)
     compute_average_PR_curve(model_dir, all_preds, all_sets)
@@ -1040,12 +1044,13 @@ def postprocessing(model_dir, network_name, include_network_measures=False):
     nodes['label'] = np.logical_or(np.logical_or(y_train, y_test), y_val)
 
     # compute the Venn diagrams
+    cutoff = get_optimal_cutoff(pred_df, node_names, test_mask, y_test, method='IS', colname='Mean_Pred')
     kcgs, ccgs, _, _, _ = get_all_cancer_gene_sets(ncg_path=PATH_NCG, 
                                                    oncoKB_path=PATH_ONCOKB,
                                                    baileyetal_path=PATH_COMPCHARACDRIVERS,
                                                    ongene_path=PATH_ONGENE
                                                   )
-    compute_overlap(model_dir, 'overlap_NCG.svg', nodes[nodes.Name.isin(kcgs)].Name, nodes[nodes.Name.isin(ccgs)].Name, 0.802,
+    compute_overlap(model_dir, 'overlap_NCG.svg', nodes[nodes.Name.isin(kcgs)].Name, nodes[nodes.Name.isin(ccgs)].Name, cutoff,
                     ['Known Cancer Genes\n(NCG)', 'Candidate Cancer Genes\n(NCG)']
     )
 
