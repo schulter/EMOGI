@@ -126,5 +126,9 @@ gene2go
 *_hsa
 *-geneid
 
+# Rdata
+*.Rhistory
+*.RData
+
 # data directory
 data/
