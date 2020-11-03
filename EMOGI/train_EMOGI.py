@@ -9,6 +9,7 @@ import scipy.sparse as sp
 import numpy as np
 from tensorflow.contrib.tensorboard.plugins import projector
 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # suppress TF info messages
 
 def predict(sess, model, features, support, labels, mask, placeholders):
     feed_dict_pred = utils.construct_feed_dict(
