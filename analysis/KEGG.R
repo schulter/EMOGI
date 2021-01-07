@@ -8,6 +8,8 @@ suppressMessages(library("biomaRt"))
 suppressMessages(library(gplots))
 suppressMessages(library("GSEABase"))
 suppressMessages(library(pathview))
+library('graphite')
+library('stringr')
 
 # specify via command line path of pagerank scores, number of genes & output path
 args <- commandArgs(TRUE)
@@ -54,7 +56,6 @@ ensembl_entrez_ids <- getBM(values = ensembl_ids,
                             mart = ensembl,
                             attributes = c("ensembl_gene_id", "entrezgene_id","hgnc_symbol")
                             )
-print (ensembl_ids)
 #KEGG enrichment analysis
 frame = toTable(org.Hs.egPATH)
 keggframeData = data.frame(frame$path_id, frame$gene_id)
@@ -62,7 +63,7 @@ keggFrame = KEGGFrame(keggframeData, organism="Homo sapiens")
 gsc <- GeneSetCollection(keggFrame, setType = KEGGCollection())
 
 # perform the actual test
-params <- GSEAKEGGHyperGParams(name="GSEA - PageRank Enrichment",
+params <- GSEAKEGGHyperGParams(name="EMOGI - GOEA",
                                geneSetCollection=gsc,
                                geneIds=ensembl_entrez_ids$entrezgene_id,
                                universeGeneIds=entrezgene_ids_universe,
@@ -72,6 +73,24 @@ params <- GSEAKEGGHyperGParams(name="GSEA - PageRank Enrichment",
 
 # write out results
 test_results <- hyperGTest(params)
+
+# add hits in the study
 results_summary <- data.frame(summary(test_results))
+results_summary$Genes = ""
+humanKegg <- pathways("hsapiens", "kegg")
+c <- 0
+for (i in results_summary$Term) {
+    print (i)
+    p <- humanKegg[[i]]
+    if (!is.null(p)) {
+        genes_in_pathway <- c(nodes(p))
+        genes_in_pathway <- str_remove(genes_in_pathway, "ENTREZID:")
+        hits_in_pathway <- ensembl_entrez_ids$hgnc_symbol[ensembl_entrez_ids$entrezgene_id %in% genes_in_pathway]
+        results_summary[c, "Genes"] = paste(hits_in_pathway, collapse=", ")
+    }
+    c <- c + 1
+}
+
+# write to disk
 write.table(results_summary, output_path, sep="\t")
 print("Successfully written results from Pathway analysis")
