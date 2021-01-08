@@ -595,6 +595,7 @@ def compute_predictions_competitors(model_dir, network_name, network_measures=Fa
         cn_baseline = nodes[test_mask.astype(np.bool)].Cancer_Neighbors
         cn_baseline.loc[cn_baseline.isnull()] = 0
         """
+    """
     # train logistic regression on the features only and predict for test set and all genes
     logreg = LogisticRegression(class_weight='balanced', solver='lbfgs')
     logreg.fit(X_train, y_train_svm.reshape(-1))
@@ -606,7 +607,23 @@ def compute_predictions_competitors(model_dir, network_name, network_measures=Fa
                                 os.path.join(model_dir, 'corr_logreg_degree.svg')
         )
     if verbose: print ("LogReg predicts {} genes in total".format(np.argmax(pred_lr_all, axis=1).sum()))
-
+    all_predictions['Log_Reg'] = pred_lr_all[:, 1]
+    
+    # train SVM on the features only and predict for test set and all genes
+    svm = SVC(kernel='rbf', class_weight='balanced', probability=True, gamma='auto')
+    svm.fit(X_train, y_train_svm.reshape(-1))
+    pred_svm_all = svm.predict_proba(features)
+    all_predictions['SVM'] = pred_svm_all[:, 1]
+    
+    # train Random Forest on the features and node degree
+    node_degree = pd.DataFrame(network, index=node_names[:, 1],columns=node_names[:, 1]).sum(axis=1).values.reshape(-1, 1)
+    features_deg = np.concatenate((features, node_degree), axis=1)
+    X_train_deg = features_deg[train_mask.astype(np.bool)]
+    svm_deg = RandomForestClassifier(n_estimators=10)
+    svm_deg.fit(X_train_deg, y_train_svm.reshape(-1))
+    pred_svm_deg_all = svm_deg.predict_proba(features_deg)
+    all_predictions['RF_Deg'] = pred_svm_deg_all[:, 1]
+    """
     # train SVM on deepWalk embeddings
     fname_dw = PATH_DEEPWALK.format(network_name.upper())
     if os.path.exists(fname_dw):
