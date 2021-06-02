@@ -1,13 +1,15 @@
 # EMOGI: Explainable Multi-Omics Graph Integration
+
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.4452728.svg)](https://doi.org/10.5281/zenodo.4452728)
 [![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-This project predicts cancer genes based on multi-omics feature vectors and protein-protein interactions. Each gene is a data point/node and semi-supervised graph convolutional networks are used for classifying cancer genes.
+This project predicts cancer genes based on multi-omics feature vectors and protein-protein interactions. Each gene is a data point/node and semi-supervised graph convolutional networks are used for classifying cancer genes. The results surrounding the analysis were published in Nature Machine Intelligence and can be accessed [here](https://www.nature.com/articles/s42256-021-00325-y).
 The following depicts a broad overview over the EMOGI method.
 
 ![Overview of the EMOGI method](method_overview.png)
 
 ## Reproducibility
-The analyses from the paper can be entirely reproced. Several notebooks in the analysis directory allow you to generate all results and the [postprocessing](EMOGI/postprocessing.py) script computes ROC and PR curves for EMOGI and competing methods if set up correctly. Please note that you might need the datasets indicated below to properly reproduce all results. To re-train the models, please have a look at the respective section in this README. The existing models also contain the HDF5 containers used for training.
+The analyses from the paper can be entirely reproduced. Several notebooks in the analysis directory allow you to generate all results and the [postprocessing](EMOGI/postprocessing.py) script computes ROC and PR curves for EMOGI and competing methods if set up correctly. Please note that you might need the datasets indicated below to properly reproduce all results. To re-train the models, please have a look at the respective section in this README. The existing models also contain the HDF5 containers used for training with fixed training and test splits. You might also want to check out [our compute capsule](https://doi.org/10.24433/CO.3567682.v1) if you are interested in reproducing results, running LRP for your favorite gene or even re-training models without going through the setup.
 
 ## Installation & Dependencies
 The code is written in Python 3 and was mainly tested on Python 3.6 and a Linux OS but should run on any OS that supports python and pip. Training is faster on a GPU (which requires the `tensorflow-gpu` instead of the normal `tensorflow` package) but works also on a standard computer.
