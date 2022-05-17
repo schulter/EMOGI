@@ -235,9 +235,8 @@ class EMOGI(Model):
             loss = tf.nn.softmax_cross_entropy_with_logits(logits=scores,
                                                            labels=labels)
         else: # two classes, let's do sigmoid and weights
-            prediction = tf.nn.sigmoid(scores)
             loss = tf.nn.weighted_cross_entropy_with_logits(targets=labels,
-                                                            logits=prediction,
+                                                            logits=scores,
                                                             pos_weight=self.pos_loss_multiplier)
         # mask loss for nodes we don't know
         mask = tf.cast(mask, dtype=tf.float32)
